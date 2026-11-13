@@ -36,6 +36,11 @@
   .small{font-size:13px;color:var(--mute);text-align:center}
   .bar{height:10px;background:#ffffff14;border-radius:6px;overflow:hidden;margin:16px 0}
   .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .08s}
+  .meter{position:relative;height:6px;width:120px;margin:4px 0 0 auto;background:#ffffff14;border-radius:4px;overflow:hidden}
+  .meter.wide{width:100%;height:10px;margin:0}
+  .meter i{position:absolute;left:0;top:0;bottom:0;width:var(--lv,0%);background:#9aa0c3;transition:width .05s}
+  .meter.on i{background:var(--ok)}
+  .meter b{position:absolute;top:0;bottom:0;left:var(--g,10%);width:2px;background:#fff}
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -49,7 +54,7 @@
   <div><div class="k">Notas</div><div class="v" id="passed">0</div></div>
   <div><div class="k">A la primera</div><div class="v" id="clean">—</div></div>
   <div class="grow"></div>
-  <div><div class="k" style="text-align:right">Tu voz</div><div class="v" id="note">—</div></div>
+  <div><div class="k" style="text-align:right">Tu voz</div><div class="v" id="note">—</div><div class="meter" id="meter"><i></i><b></b></div></div>
   <button id="quit">Terminar</button>
 </div>
 
@@ -62,6 +67,7 @@
       <button class="mode" data-mode="hard"><b>Difícil</b><span>Octava exacta, con saltos de octava marcados como 8va ↑ / ↓.</span></button>
     </div>
     <label class="row">Tolerancia <input type="range" id="tol" min="15" max="80" step="5" value="50"><span class="val" id="tolV">±50¢</span></label>
+    <label class="row">Sensibilidad del micrófono <input type="range" id="sens" min="1" max="5" step="1" value="3"><span class="val" id="sensV">media</span></label>
     <label class="row">Velocidad <input type="range" id="spd" min="0.6" max="1.6" step="0.1" value="1"><span class="val" id="spdV">1.0×</span></label>
     <label class="row">Tocar la nota antes de cada muro <input type="checkbox" id="ref" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
     <label class="row">Instrumento
@@ -81,7 +87,7 @@
       <button class="sec hidden" id="recal">Recalibrar voz</button>
     </div>
     <div class="err hidden" id="err"></div>
-    <div class="hint">Usa audífonos si activas la nota de referencia. Durante el juego, la barra espaciadora repite la nota que viene. 100 cents = 1 semitono.</div>
+    <div class="hint">El micrófono escucha siempre, también mientras suena la nota: con audífonos funciona mejor. Si no te detecta, sube la sensibilidad; si la pelota se mueve sola, bájala. Durante el juego, la barra espaciadora repite la nota que viene. 100 cents = 1 semitono.</div>
   </div>
 </div>
 
@@ -92,6 +98,8 @@
     <div class="big" id="calibNote">—</div>
     <div class="small" id="calibSub">esperando tu voz…</div>
     <div class="bar"><i id="calibBar"></i></div>
+    <div class="small" style="text-align:left;margin-bottom:6px">Nivel del micrófono (la raya blanca es el mínimo para que te escuche):</div>
+    <div class="meter wide" id="meterC"><i></i><b></b></div>
     <div class="btns">
       <button class="main hidden" id="calibGo">¡Jugar!</button>
       <button class="sec hidden" id="calibRedo">Repetir</button>
@@ -137,7 +145,7 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 /* ---------- settings ---------- */
-const cfg = { mode: 'easy', tol: 50, speed: 1, ref: true, inst: 'piano' };
+const cfg = { mode: 'easy', tol: 50, speed: 1, ref: true, inst: 'piano', sens: 3 };
 let comf = 57, calibrated = false;
 document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
   document.querySelectorAll('.mode').forEach(x => x.classList.remove('sel'));
@@ -145,10 +153,11 @@ document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
   $('tol').value = cfg.mode === 'easy' ? 50 : 35; syncSliders();
 });
 function syncSliders() {
-  cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value;
+  cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value; cfg.sens = +$('sens').value;
+  $('sensV').textContent = ['muy baja', 'baja', 'media', 'alta', 'muy alta'][cfg.sens - 1];
   $('tolV').textContent = '±' + cfg.tol + '¢'; $('spdV').textContent = cfg.speed.toFixed(1) + '×';
 }
-['tol', 'spd', 'ref', 'inst'].forEach(id => { $(id).oninput = syncSliders; $(id).onchange = syncSliders; }); syncSliders();
+['tol', 'spd', 'ref', 'inst', 'sens'].forEach(id => { $(id).oninput = syncSliders; $(id).onchange = syncSliders; }); syncSliders();
 try { const s = localStorage.getItem('pelota-inst'); if (s) { $('inst').value = s; syncSliders(); } } catch (e) {}
 $('inst').addEventListener('change', () => { try { localStorage.setItem('pelota-inst', cfg.inst); } catch (e) {} });
 $('try').onclick = async () => { syncSliders(); ensureCtx(); await actx.resume(); playTone(calibrated ? comf : 57); };
@@ -171,11 +180,11 @@ async function initMic() {
 
 // YIN pitch detection
 let yinD = null, yinC = null;
-function detectPitch(x, sr) {
+function detectPitch(x, sr, gate) {
   const n = x.length;
   let rms = 0; for (let i = 0; i < n; i++) rms += x[i] * x[i];
   rms = Math.sqrt(rms / n);
-  if (rms < 0.012) return { f: 0, rms };
+  if (rms < gate) return { f: 0, rms };
   const tauMin = Math.floor(sr / 1100), tauMax = Math.min(Math.floor(sr / 65), Math.floor(n / 2));
   const win = n - tauMax;
   if (!yinD || yinD.length !== tauMax + 1) { yinD = new Float32Array(tauMax + 1); yinC = new Float32Array(tauMax + 1); }
@@ -186,9 +195,20 @@ function detectPitch(x, sr) {
   }
   yinC[0] = 1; let run = 0;
   for (let t = 1; t <= tauMax; t++) { run += yinD[t]; yinC[t] = run ? yinD[t] * t / run : 1; }
-  let tau = -1;
+  // first dip under the threshold; if there is none, accept the deepest dip when it is still clearly periodic
+  let tau = -1, best = tauMin;
   for (let t = tauMin; t <= tauMax; t++) {
-    if (yinC[t] < 0.13) { while (t + 1 <= tauMax && yinC[t + 1] < yinC[t]) t++; tau = t; break; }
+    if (yinC[t] < 0.17) { while (t + 1 <= tauMax && yinC[t + 1] < yinC[t]) t++; tau = t; break; }
+    if (yinC[t] < yinC[best]) best = t;
+  }
+  if (tau < 0 && yinC[best] < 0.32) {
+    tau = best;
+    // the deepest dip can be a multiple of the real period (octave error): prefer a shorter period that dips almost as much
+    for (let k = 4; k >= 2; k--) {
+      const c = Math.round(best / k); if (c < tauMin) continue;
+      let m = c; for (let t = Math.max(tauMin, c - 3); t <= c + 3; t++) if (yinC[t] < yinC[m]) m = t;
+      if (yinC[m] < yinC[best] + 0.1) { tau = m; break; }
+    }
   }
   if (tau < 0) return { f: 0, rms };
   let better = tau;
@@ -199,16 +219,37 @@ function detectPitch(x, sr) {
   return { f: sr / better, rms };
 }
 
+// The gate adapts to the room: it follows the background noise level and sits a bit above it.
+// The "Sensibilidad" setting moves it up or down.
+const SENS = [2.2, 1.5, 1, 0.65, 0.4];
 let hist = [], curMidi = null, voiced = false, silentF = 0, muteUntil = 0;
+let micLevel = 0, noiseFloor = 0.004, gateNow = 0.008;
 function readPitch(now) {
   if (!analyser) return;
   analyser.getFloatTimeDomainData(buf);
-  const r = detectPitch(buf, actx.sampleRate);
+  gateNow = Math.max(0.0025, Math.min(0.03, noiseFloor * 2.5)) * SENS[cfg.sens - 1];
+  const r = detectPitch(buf, actx.sampleRate, gateNow);
+  micLevel = r.rms;
   if (r.f > 0) {
     hist.push(hzToMidi(r.f)); if (hist.length > 5) hist.shift();
     curMidi = median(hist); voiced = true; silentF = 0;
-  } else if (++silentF > 5) { voiced = false; hist = []; }
+  } else {
+    // background noise: follow quickly downwards, slowly upwards
+    noiseFloor += (r.rms - noiseFloor) * (r.rms < noiseFloor ? 0.2 : 0.004);
+    if (++silentF > 9) { voiced = false; hist = []; }   // ~150 ms of grace for breaths and consonants
+  }
+  drawMeter();
 }
+function drawMeter() {
+  const lv = Math.min(1, Math.sqrt(micLevel / 0.15)), g = Math.min(1, Math.sqrt(gateNow / 0.15));
+  for (const id of ['meter', 'meterC']) {
+    const el = $(id); if (!el) continue;
+    el.style.setProperty('--lv', (lv * 100).toFixed(1) + '%');
+    el.style.setProperty('--g', (g * 100).toFixed(1) + '%');
+    el.classList.toggle('on', voiced);
+  }
+}
+// tone playing: the world waits, but the microphone keeps listening
 const muted = now => now < muteUntil;
 
 /* ---------- instruments (all synthesized, no samples) ---------- */
@@ -362,7 +403,7 @@ function frame() {
 function update(dt, now) {
   const L = layout(), rU = L.r / L.sp;
   // ball follows voice
-  const singing = voiced && !muted(now) && curMidi != null;
+  const singing = voiced && curMidi != null;
   if (singing) {
     if (G.ballMidi == null) G.ballMidi = curMidi;
     if (cfg.mode === 'easy') G.ballMidi += 12 * Math.round((curMidi - G.ballMidi) / 12);
@@ -503,7 +544,7 @@ function draw(now) {
     ctx.textAlign = 'left';
   }
 
-  const singing = voiced && !muted(now);
+  const singing = voiced;
   const bx = L.ballX + (G.shake > 0 ? Math.sin(now * 80) * 5 * G.shake / 0.25 : 0);
 
   // after a bounce: dashed guide from the ball to the gap
@@ -546,7 +587,7 @@ function draw(now) {
   }
   if (muted(now)) {
     ctx.font = '600 14px system-ui'; ctx.fillStyle = '#ffcc4d'; ctx.textAlign = 'center';
-    ctx.fillText('🔊 escucha…', L.ballX, TOP + 4); ctx.textAlign = 'left';
+    ctx.fillText('🔊', L.ballX, TOP + 4); ctx.textAlign = 'left';
   }
 
   // particles & floats
@@ -559,7 +600,7 @@ function draw(now) {
   }
   ctx.globalAlpha = 1; ctx.textAlign = 'left';
 
-  if (voiced && curMidi != null && !muted(now)) {
+  if (voiced && curMidi != null) {
     const c = Math.round((curMidi - Math.round(curMidi)) * 100);
     $('note').textContent = (cfg.mode === 'easy' ? NAMES[pcOf(curMidi)] : nameOf(curMidi)) + ' ' + (c >= 0 ? '+' : '') + c + '¢';
   } else $('note').textContent = '—';
