@@ -46,16 +46,17 @@
 <div id="hud" class="hidden">
   <div><div class="k">Puntos</div><div class="v" id="score">0</div></div>
   <div><div class="k">Racha</div><div class="v" id="streak">0</div></div>
-  <div><div class="k">Vidas</div><div class="v" id="lives">❤❤❤</div></div>
+  <div><div class="k">Notas</div><div class="v" id="passed">0</div></div>
+  <div><div class="k">A la primera</div><div class="v" id="clean">—</div></div>
   <div class="grow"></div>
   <div><div class="k" style="text-align:right">Tu voz</div><div class="v" id="note">—</div></div>
-  <button id="quit">Salir</button>
+  <button id="quit">Terminar</button>
 </div>
 
 <div class="overlay" id="menu">
   <div class="card">
     <h1>Pelota Afinada</h1>
-    <p>Canta para mover la pelota: más agudo sube, más grave baja. Pasa por el hueco de cada muro sosteniendo la nota correcta.</p>
+    <p>Canta para mover la pelota: más agudo sube, más grave baja. Pasa por el hueco de cada muro sosteniendo la nota correcta. Si no le achuntas, la pelota rebota y tienes tiempo para corregir.</p>
     <div class="modes">
       <button class="mode sel" data-mode="easy"><b>Fácil</b><span>La octava no importa: cualquier Do es un Do. La pantalla "da la vuelta".</span></button>
       <button class="mode" data-mode="hard"><b>Difícil</b><span>Octava exacta, con saltos de octava marcados como 8va ↑ / ↓.</span></button>
@@ -101,7 +102,7 @@
 
 <div class="overlay hidden" id="over">
   <div class="card">
-    <h2>Fin del juego</h2>
+    <h2>Resumen</h2>
     <div class="big" id="finalScore">0</div>
     <div class="small" id="finalSub"></div>
     <div class="btns" style="justify-content:center">
@@ -290,16 +291,19 @@ addEventListener('keydown', e => {
 
 /* ---------- game state ---------- */
 let phase = 'menu';
-const HOLD = 0.55;              // seconds the ball spends inside a wall
+const HOLD = 0.55;              // tunnel length, in "travel seconds"
 let G = null;
 const range = () => cfg.mode === 'easy' ? { lo: 0, hi: 11 } : { lo: comf - 9, hi: comf + 10 };
 
+// World positions are measured in seconds of normal travel, so the game feels the same at any screen size.
 function newGame() {
   const now = performance.now() / 1000;
   const travel = 3.2 / cfg.speed;
-  G = { score: 0, streak: 0, lives: 3, walls: [], floats: [], parts: [], trail: [], ballMidi: null,
-        travel, gap: 2.4 / cfg.speed, prev: cfg.mode === 'easy' ? pcOf(comf) : comf, count: 0, endAt: 0 };
-  addWall(now + Math.max(travel, 2.6), now + 0.4);
+  G = { score: 0, streak: 0, passed: 0, clean: 0, walls: [], floats: [], parts: [], trail: [], ballMidi: null,
+        travel, gapT: 2.4 / cfg.speed, scroll: 0, v: 1, shake: 0,
+        prev: cfg.mode === 'easy' ? pcOf(comf) : comf, count: 0, pendingTone: null, lastReplay: 0 };
+  addWall(Math.max(travel, 2.6));
+  G.pendingTone = { at: now + 0.4, w: G.walls[0] };
   updHud();
 }
 function nextTarget() {
@@ -316,10 +320,10 @@ function nextTarget() {
   t = Math.max(lo, Math.min(hi, t));
   return { target: t, jump: 0 };
 }
-function addWall(tArrive, toneAt) {
+function addWall(s) {
   const { target, jump } = G.count === 0 ? { target: G.prev, jump: 0 } : nextTarget();
   G.prev = target; G.count++;
-  G.walls.push({ tArrive, toneAt, target, jump, toned: false, inF: 0, outF: 0, silF: 0, devOut: 0, done: false, pass: false, live: null });
+  G.walls.push({ s, target, jump, entered: false, bounced: 0, done: false, live: null, flash: 0 });
 }
 const toneMidi = w => cfg.mode === 'easy' ? comf + mod(w.target - comf + 6, 12) - 6 : w.target;
 
@@ -332,12 +336,17 @@ function devSemis(m, w) {
 const TOP = 74, BOT = 26;
 function layout() {
   const { lo, hi } = range(), rows = hi - lo + 1;
-  return { lo, rows, rowH: (H - TOP - BOT) / rows, baseY: H - BOT, ballX: Math.max(90, W * 0.25) };
+  const L = { lo, rows, rowH: (H - TOP - BOT) / rows, baseY: H - BOT, ballX: Math.max(90, W * 0.25) };
+  L.sp = (W - L.ballX + 60) / G.travel;            // px per world unit
+  L.r = Math.max(7, Math.min(14, L.rowH * 0.32));  // ball radius
+  return L;
 }
 function yOf(m, L) {
   if (cfg.mode === 'easy') { const c = mod(m + 0.5, 12) - 0.5; return L.baseY - (c + 0.5) * L.rowH; }
   return L.baseY - (m - L.lo + 0.5) * L.rowH;
 }
+const wallX = (w, L) => L.ballX + (w.s - G.scroll) * L.sp;
+const gapHalf = L => Math.max(4, cfg.tol / 100 * L.rowH);
 
 /* ---------- loop ---------- */
 let last = performance.now() / 1000;
@@ -345,14 +354,13 @@ function frame() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - last); last = now;
   readPitch(now);
   if (phase === 'calib') calibStep(dt, now);
-  if (phase === 'play' || phase === 'ending') update(dt, now);
+  if (phase === 'play') update(dt, now);
   draw(now);
   requestAnimationFrame(frame);
 }
 
 function update(dt, now) {
-  const L = layout();
-  const speed = (W - L.ballX + 60) / G.travel, wallW = speed * HOLD;
+  const L = layout(), rU = L.r / L.sp;
   // ball follows voice
   const singing = voiced && !muted(now) && curMidi != null;
   if (singing) {
@@ -360,65 +368,106 @@ function update(dt, now) {
     if (cfg.mode === 'easy') G.ballMidi += 12 * Math.round((curMidi - G.ballMidi) / 12);
     G.ballMidi += (curMidi - G.ballMidi) * Math.min(1, dt * 16);
   }
-  if (G.ballMidi != null) {
-    G.trail.push({ y: yOf(G.ballMidi, L), on: singing }); if (G.trail.length > 26) G.trail.shift();
+
+  // reference tone
+  if (G.pendingTone && now >= G.pendingTone.at) {
+    if (cfg.ref) { playTone(toneMidi(G.pendingTone.w)); G.lastReplay = now; }
+    G.pendingTone = null;
   }
-  if (phase === 'ending') { if (now > G.endAt) showOver(); return; }
 
   // spawn ahead
-  const lastW = G.walls[G.walls.length - 1];
-  if (lastW.tArrive - now < G.travel + G.gap) addWall(lastW.tArrive + G.gap, lastW.tArrive + HOLD / 2 + 0.05);
+  let lastW = G.walls[G.walls.length - 1];
+  while (lastW.s - G.scroll < G.travel + G.gapT) { addWall(lastW.s + G.gapT); lastW = G.walls[G.walls.length - 1]; }
 
-  for (const w of G.walls) {
-    if (cfg.ref && !w.toned && now >= w.toneAt) { w.toned = true; playTone(toneMidi(w)); }
-    if (w.done) continue;
-    if (Math.abs(now - w.tArrive) <= HOLD / 2) {
-      if (!singing) { w.outF++; w.silF++; w.live = false; }
-      else {
-        const d = devSemis(G.ballMidi, w);
-        if (Math.abs(d) * 100 <= cfg.tol) { w.inF++; w.live = true; } else { w.outF++; w.devOut += d; w.live = false; }
-      }
-    } else if (now > w.tArrive + HOLD / 2) resolve(w, L);
+  // how fast should the world move?
+  const w = G.walls.find(w => !w.done);
+  const onNote = w && singing && G.ballMidi != null && Math.abs(devSemis(G.ballMidi, w)) * 100 <= cfg.tol;
+  let target = 1;
+  if (w) {
+    if (!w.entered && w.bounced) target = 0.35;          // after a bounce, approach slowly
+    if (w.entered) target = onNote ? 1 : 0;               // inside the tunnel, only move while on the note
+    if (!w.entered && muted(now)) target = 0;             // wait while the note is playing
   }
-  G.walls = G.walls.filter(w => ballXof(w, now, L, speed) > -wallW);
+  const acc = G.v < target ? 3 : 6;
+  G.v = G.v < target ? Math.min(target, G.v + acc * dt) : Math.max(target, G.v - acc * dt);
+  G.scroll += G.v * dt;
+
+  if (w) {
+    const front = w.s - HOLD / 2, back = w.s + HOLD / 2;
+    w.live = w.entered ? onNote : null;
+    if (!w.entered && G.scroll + rU >= front) {
+      if (onNote) w.entered = true;
+      else if (G.v > 0) bounce(w, now, L, singing, front - rU);
+      else G.scroll = front - rU;
+    } else if (w.entered && G.scroll - rU > back) pass(w, now, L);
+  }
+
+  if (G.ballMidi != null) {
+    G.trail.push({ y: ballY(L, now), on: singing }); if (G.trail.length > 26) G.trail.shift();
+  }
+  G.shake = Math.max(0, G.shake - dt);
+  G.walls = G.walls.filter(w => wallX(w, L) > -HOLD * L.sp);
   G.floats = G.floats.filter(f => now - f.t < 1.1);
   G.parts = G.parts.filter(p => (p.life -= dt) > 0);
   G.parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; });
 }
-const ballXof = (w, now, L, speed) => L.ballX + (w.tArrive - now) * speed;
 
-function resolve(w, L) {
-  w.done = true; w.live = null;
-  const tot = w.inF + w.outF, frac = tot ? w.inF / tot : 0;
-  const by = G.ballMidi != null ? yOf(G.ballMidi, L) : H / 2;
-  if (frac >= 0.6) {
-    w.pass = true; G.streak++;
-    const pts = Math.round((10 + 2 * Math.min(G.streak, 20)) * (w.jump ? 1.5 : 1));
-    G.score += pts;
-    G.floats.push({ text: (w.jump ? '¡Salto! ' : '¡Bien! ') + '+' + pts, color: '#5be39b', y: by, t: performance.now() / 1000 });
-    for (let i = 0; i < 18; i++) G.parts.push({ x: L.ballX, y: by, vx: (Math.random() - .3) * 260, vy: (Math.random() - .7) * 260, life: .8, c: colorOf(cfg.mode === 'easy' ? w.target : pcOf(w.target)) });
-  } else {
-    G.streak = 0; G.lives--;
-    let msg = 'Sin voz';
-    if (w.silF < tot / 2) msg = w.devOut > 0 ? 'Muy alto ↑' : 'Muy bajo ↓';
-    if (cfg.mode === 'hard' && w.silF < tot / 2 && Math.abs(Math.abs(w.devOut / Math.max(1, w.outF - w.silF)) - 12) < 1) msg = 'Octava equivocada';
-    G.floats.push({ text: msg, color: '#ff6b7a', y: by, t: performance.now() / 1000 });
-    if (G.lives <= 0) { phase = 'ending'; G.endAt = performance.now() / 1000 + 0.9; }
+function bounce(w, now, L, singing, stopAt) {
+  w.bounced++; w.flash = now; G.v = -1.2; G.scroll = stopAt; G.streak = 0; G.shake = 0.25;
+  let msg = '¡Canta!';
+  if (singing && G.ballMidi != null) {
+    const d = devSemis(G.ballMidi, w);
+    if (cfg.mode === 'hard' && Math.abs(Math.abs(d) - 12) < 1) msg = d > 0 ? 'Una octava más abajo ↓' : 'Una octava más arriba ↑';
+    else if (d > 0) msg = d < 1.5 ? 'Un poquito más bajo ↓' : 'Más bajo ↓';
+    else msg = d > -1.5 ? 'Un poquito más alto ↑' : 'Más alto ↑';
   }
+  G.floats.push({ text: msg, color: '#ffcc4d', y: G.ballMidi != null ? yOf(G.ballMidi, L) : H / 2, t: now });
+  if (cfg.ref && now - G.lastReplay > 2.5) G.pendingTone = { at: now + 0.35, w };
+  updHud();
+}
+
+function pass(w, now, L) {
+  w.done = true; G.passed++;
+  if (!w.bounced) { G.clean++; G.streak++; }
+  let pts = w.bounced ? Math.max(2, 6 - 2 * (w.bounced - 1)) : 10 + 2 * Math.min(G.streak, 20);
+  if (w.jump) pts = Math.round(pts * 1.5);
+  G.score += pts;
+  const by = ballY(L, now);
+  G.floats.push({ text: (w.bounced ? '¡Lo lograste! ' : '¡A la primera! ') + '+' + pts, color: '#5be39b', y: by, t: now });
+  for (let i = 0; i < 18; i++) G.parts.push({ x: L.ballX, y: by, vx: (Math.random() - .3) * 260, vy: (Math.random() - .7) * 260, life: .8, c: colorOf(cfg.mode === 'easy' ? w.target : pcOf(w.target)) });
+  const next = G.walls.find(x => !x.done);
+  if (next) G.pendingTone = { at: now + 0.05, w: next };
   updHud();
 }
 
 function updHud() {
   $('score').textContent = G.score; $('streak').textContent = G.streak;
-  $('lives').textContent = '❤'.repeat(Math.max(0, G.lives)) + '♡'.repeat(3 - Math.max(0, G.lives));
+  $('passed').textContent = G.passed;
+  $('clean').textContent = G.passed ? Math.round(100 * G.clean / G.passed) + '%' : '—';
+}
+
+// ball's screen y; inside a tunnel it is kept within the gap
+function ballY(L, now) {
+  let y = yOf(G.ballMidi, L);
+  const w = G.walls.find(w => !w.done);
+  if (w && w.entered) {
+    const gy = nearestGapY(w, L, y), gh = gapHalf(L);
+    y = Math.max(gy - gh, Math.min(gy + gh, y));
+  }
+  return y;
+}
+function nearestGapY(w, L, y) {
+  const gy = yOf(w.target, L);
+  if (cfg.mode !== 'easy') return gy;
+  return [gy, gy + 12 * L.rowH, gy - 12 * L.rowH].reduce((a, b) => Math.abs(b - y) < Math.abs(a - y) ? b : a);
 }
 
 /* ---------- drawing ---------- */
 function draw(now) {
   ctx.fillStyle = '#0e1020'; ctx.fillRect(0, 0, W, H);
-  if (phase !== 'play' && phase !== 'ending') return;
-  const L = layout();
-  const speed = (W - L.ballX + 60) / G.travel, wallW = speed * HOLD;
+  if (phase !== 'play') return;
+  const L = layout(), wallW = HOLD * L.sp, r = L.r;
+  const cur = G.walls.find(w => !w.done);
 
   // note guides
   ctx.font = '600 12px system-ui'; ctx.textBaseline = 'middle';
@@ -433,22 +482,20 @@ function draw(now) {
 
   // walls
   for (const w of G.walls) {
-    const x = ballXof(w, now, L, speed); if (x > W + wallW) continue;
+    const x = wallX(w, L); if (x > W + wallW) continue;
     const pc = cfg.mode === 'easy' ? w.target : pcOf(w.target);
-    const gy = yOf(w.target, L), gh = Math.max(4, cfg.tol / 100 * L.rowH);
+    const gy = yOf(w.target, L), gh = gapHalf(L);
     const x0 = x - wallW / 2;
     let body = colorOf(pc, 0.22), edge = colorOf(pc, 1);
-    if (w.done) { body = w.pass ? '#5be39b22' : '#ff6b7a22'; edge = w.pass ? '#5be39b' : '#ff6b7a'; }
+    if (w.done) { body = '#5be39b22'; edge = '#5be39b'; }
     else if (w.live === true) { body = '#5be39b33'; edge = '#5be39b'; }
-    else if (w.live === false) { body = '#ff6b7a33'; edge = '#ff6b7a'; }
+    else if (w.live === false || now - w.flash < 0.3) { body = '#ff6b7a33'; edge = '#ff6b7a'; }
     ctx.fillStyle = body;
     ctx.fillRect(x0, 0, wallW, gy - gh); ctx.fillRect(x0, gy + gh, wallW, H - gy - gh);
     ctx.fillStyle = edge;
     ctx.fillRect(x0, gy - gh - 3, wallW, 3); ctx.fillRect(x0, gy + gh, wallW, 3);
-    // label
     ctx.textAlign = 'center'; ctx.font = '700 14px system-ui';
-    const label = cfg.mode === 'easy' ? NAMES[pc] : nameOf(w.target);
-    ctx.fillStyle = edge; ctx.fillText(label, x, gy - gh - 16);
+    ctx.fillStyle = edge; ctx.fillText(cfg.mode === 'easy' ? NAMES[pc] : nameOf(w.target), x, gy - gh - 16);
     if (w.jump) {
       ctx.font = '800 13px system-ui'; ctx.fillStyle = '#ffcc4d';
       ctx.fillText(w.jump > 0 ? '8va ↑' : '8va ↓', x, gy - gh - 34);
@@ -456,30 +503,42 @@ function draw(now) {
     ctx.textAlign = 'left';
   }
 
-  // ball
-  const r = Math.max(7, Math.min(14, L.rowH * 0.32));
   const singing = voiced && !muted(now);
+  const bx = L.ballX + (G.shake > 0 ? Math.sin(now * 80) * 5 * G.shake / 0.25 : 0);
+
+  // after a bounce: dashed guide from the ball to the gap
+  if (cur && cur.bounced && !cur.entered && G.ballMidi != null && singing) {
+    const by = yOf(G.ballMidi, L), gy = nearestGapY(cur, L, by);
+    if (Math.abs(gy - by) > gapHalf(L)) {
+      ctx.setLineDash([6, 6]); ctx.strokeStyle = '#ffcc4d99'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(wallX(cur, L) - wallW / 2, gy); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // trail
   for (let i = 1; i < G.trail.length; i++) {
     const a = G.trail[i - 1], b = G.trail[i];
     if (Math.abs(a.y - b.y) > H / 3 || !b.on) continue;
     const t = i / G.trail.length;
     ctx.strokeStyle = `rgba(255,255,255,${t * 0.35})`; ctx.lineWidth = r * t;
     ctx.beginPath();
-    ctx.moveTo(L.ballX - (G.trail.length - i + 1) * 5, a.y); ctx.lineTo(L.ballX - (G.trail.length - i) * 5, b.y); ctx.stroke();
+    ctx.moveTo(bx - (G.trail.length - i + 1) * 5, a.y); ctx.lineTo(bx - (G.trail.length - i) * 5, b.y); ctx.stroke();
   }
+
+  // ball
   if (G.ballMidi != null) {
-    let y = yOf(G.ballMidi, L);
+    const y = ballY(L, now), inside = cur && cur.entered;
     const ys = [y];
-    if (cfg.mode === 'easy') { ys.push(y + 12 * L.rowH, y - 12 * L.rowH); }
+    if (cfg.mode === 'easy' && !inside) ys.push(y + 12 * L.rowH, y - 12 * L.rowH);
     const col = colorOf(pcOf(G.ballMidi));
     for (let yy of ys) {
       if (yy < -r || yy > H + r) continue;
       let arrow = 0;
       if (cfg.mode === 'hard') { if (yy < TOP) { yy = TOP; arrow = -1; } if (yy > L.baseY) { yy = L.baseY; arrow = 1; } }
-      ctx.beginPath(); ctx.arc(L.ballX, yy, r, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(bx, yy, r, 0, Math.PI * 2);
       if (singing) { ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0; }
       else { ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 2; ctx.stroke(); }
-      if (arrow) { ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(arrow < 0 ? '▲' : '▼', L.ballX, yy + arrow * (r + 10)); ctx.textAlign = 'left'; }
+      if (arrow) { ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(arrow < 0 ? '▲' : '▼', bx, yy + arrow * (r + 10)); ctx.textAlign = 'left'; }
     }
   } else {
     ctx.fillStyle = '#9aa0c3'; ctx.font = '14px system-ui'; ctx.textAlign = 'center';
@@ -496,11 +555,10 @@ function draw(now) {
   ctx.font = '800 18px system-ui'; ctx.textAlign = 'center';
   for (const f of G.floats) {
     const t = now - f.t; ctx.globalAlpha = Math.max(0, 1 - t / 1.1); ctx.fillStyle = f.color;
-    ctx.fillText(f.text, L.ballX + 40, f.y - 30 - t * 40);
+    ctx.fillText(f.text, L.ballX + 60, f.y - 30 - t * 40);
   }
   ctx.globalAlpha = 1; ctx.textAlign = 'left';
 
-  // HUD note readout
   if (voiced && curMidi != null && !muted(now)) {
     const c = Math.round((curMidi - Math.round(curMidi)) * 100);
     $('note').textContent = (cfg.mode === 'easy' ? NAMES[pcOf(curMidi)] : nameOf(curMidi)) + ' ' + (c >= 0 ? '+' : '') + c + '¢';
@@ -544,7 +602,8 @@ function showOver() {
   const key = 'pelota-best-' + cfg.mode; let best = 0;
   try { best = +(localStorage.getItem(key) || 0); if (G.score > best) { localStorage.setItem(key, G.score); } } catch (e) {}
   $('finalScore').textContent = G.score;
-  $('finalSub').textContent = (G.score > best ? '¡Nuevo récord!' : 'Récord: ' + best) + ' · modo ' + (cfg.mode === 'easy' ? 'fácil' : 'difícil');
+  $('finalSub').textContent = G.passed + ' notas · ' + G.clean + ' a la primera · ' +
+    (G.score > best ? '¡nuevo récord!' : 'récord: ' + best) + ' · modo ' + (cfg.mode === 'easy' ? 'fácil' : 'difícil');
   show('over');
 }
 
@@ -564,7 +623,7 @@ $('calibRedo').onclick = startCalib;
 $('calibSkip').onclick = () => { comf = 57; calibrated = true; $('recal').classList.remove('hidden'); play(); };
 $('again').onclick = play;
 $('toMenu').onclick = () => { phase = 'menu'; show('menu'); };
-$('quit').onclick = () => { phase = 'menu'; show('menu'); };
+$('quit').onclick = () => { if (G && G.passed > 0) showOver(); else { phase = 'menu'; show('menu'); } };
 
 requestAnimationFrame(frame);
 })();
