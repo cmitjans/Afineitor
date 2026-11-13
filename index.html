@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelota Afinada · prototipo</title>
+<style>
+  :root{--bg:#0e1020;--card:#181b30;--ink:#eef0ff;--mute:#9aa0c3;--acc:#ffcc4d;--ok:#5be39b;--bad:#ff6b7a}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+  canvas{display:block}
+  #hud{position:fixed;top:0;left:0;right:0;height:60px;display:flex;align-items:center;gap:22px;padding:0 18px;background:linear-gradient(#0e1020,#0e102000);pointer-events:none}
+  #hud .k{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.08em}
+  #hud .v{font-size:20px;font-weight:700}
+  #hud .grow{flex:1}
+  #note{font-variant-numeric:tabular-nums;min-width:120px;text-align:right}
+  #quit{pointer-events:auto;background:#ffffff14;border:0;color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;font:inherit;font-size:13px}
+  .hidden{display:none!important}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0e1020d9;padding:16px}
+  .card{background:var(--card);border-radius:20px;padding:28px;width:min(520px,100%);box-shadow:0 20px 60px #0008}
+  h1{margin:0 0 4px;font-size:30px}
+  h2{margin:0 0 10px;font-size:22px}
+  p{color:var(--mute);line-height:1.45;margin:6px 0 16px}
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0 18px}
+  .mode{background:#ffffff0d;border:2px solid transparent;border-radius:14px;padding:14px;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
+  .mode b{display:block;font-size:16px;margin-bottom:4px}
+  .mode span{font-size:13px;color:var(--mute)}
+  .mode.sel{border-color:var(--acc);background:#ffcc4d14}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;font-size:14px}
+  label.row input[type=range]{flex:1;max-width:220px;accent-color:var(--acc)}
+  .val{min-width:56px;text-align:right;color:var(--acc);font-variant-numeric:tabular-nums}
+  .btns{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+  button.main{background:var(--acc);color:#1b1500;border:0;border-radius:12px;padding:13px 22px;font:inherit;font-weight:700;font-size:16px;cursor:pointer}
+  button.sec{background:#ffffff14;color:var(--ink);border:0;border-radius:12px;padding:13px 18px;font:inherit;cursor:pointer}
+  .big{font-size:56px;font-weight:800;text-align:center;margin:14px 0 4px;font-variant-numeric:tabular-nums}
+  .small{font-size:13px;color:var(--mute);text-align:center}
+  .bar{height:10px;background:#ffffff14;border-radius:6px;overflow:hidden;margin:16px 0}
+  .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .08s}
+  .err{color:var(--bad);font-size:14px;margin-top:10px}
+  .hint{font-size:12px;color:var(--mute);margin-top:14px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div><div class="k">Puntos</div><div class="v" id="score">0</div></div>
+  <div><div class="k">Racha</div><div class="v" id="streak">0</div></div>
+  <div><div class="k">Vidas</div><div class="v" id="lives">❤❤❤</div></div>
+  <div class="grow"></div>
+  <div><div class="k" style="text-align:right">Tu voz</div><div class="v" id="note">—</div></div>
+  <button id="quit">Salir</button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card">
+    <h1>Pelota Afinada</h1>
+    <p>Canta para mover la pelota: más agudo sube, más grave baja. Pasa por el hueco de cada muro sosteniendo la nota correcta.</p>
+    <div class="modes">
+      <button class="mode sel" data-mode="easy"><b>Fácil</b><span>La octava no importa: cualquier Do es un Do. La pantalla "da la vuelta".</span></button>
+      <button class="mode" data-mode="hard"><b>Difícil</b><span>Octava exacta, con saltos de octava marcados como 8va ↑ / ↓.</span></button>
+    </div>
+    <label class="row">Tolerancia <input type="range" id="tol" min="15" max="80" step="5" value="50"><span class="val" id="tolV">±50¢</span></label>
+    <label class="row">Velocidad <input type="range" id="spd" min="0.6" max="1.6" step="0.1" value="1"><span class="val" id="spdV">1.0×</span></label>
+    <label class="row">Tocar la nota antes de cada muro <input type="checkbox" id="ref" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
+    <label class="row">Instrumento
+      <span style="display:flex;gap:8px;align-items:center">
+        <select id="inst" style="background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit">
+          <option value="piano">Piano</option>
+          <option value="guitar">Guitarra</option>
+          <option value="marimba">Marimba</option>
+          <option value="flute">Flauta</option>
+          <option value="synth">Sintetizador</option>
+        </select>
+        <button class="sec" id="try" style="padding:8px 12px">▶ Probar</button>
+      </span>
+    </label>
+    <div class="btns">
+      <button class="main" id="start">Empezar</button>
+      <button class="sec hidden" id="recal">Recalibrar voz</button>
+    </div>
+    <div class="err hidden" id="err"></div>
+    <div class="hint">Usa audífonos si activas la nota de referencia. Durante el juego, la barra espaciadora repite la nota que viene. 100 cents = 1 semitono.</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="calib">
+  <div class="card">
+    <h2>Calibración</h2>
+    <p id="calibTxt">Canta una nota cómoda, la que te salga sin esfuerzo, y mantenla un par de segundos. Esa será tu octava "de casa".</p>
+    <div class="big" id="calibNote">—</div>
+    <div class="small" id="calibSub">esperando tu voz…</div>
+    <div class="bar"><i id="calibBar"></i></div>
+    <div class="btns">
+      <button class="main hidden" id="calibGo">¡Jugar!</button>
+      <button class="sec hidden" id="calibRedo">Repetir</button>
+      <button class="sec" id="calibSkip">Saltar (usar La3)</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="over">
+  <div class="card">
+    <h2>Fin del juego</h2>
+    <div class="big" id="finalScore">0</div>
+    <div class="small" id="finalSub"></div>
+    <div class="btns" style="justify-content:center">
+      <button class="main" id="again">Otra vez</button>
+      <button class="sec" id="toMenu">Cambiar modo</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const NAMES = ['Do','Do#','Re','Re#','Mi','Fa','Fa#','Sol','Sol#','La','La#','Si'];
+const pcOf = m => ((Math.round(m) % 12) + 12) % 12;
+const nameOf = m => NAMES[pcOf(m)] + (Math.floor(Math.round(m) / 12) - 1);
+const colorOf = (pc, a = 1) => `hsla(${(pc * 30 + 200) % 360},85%,64%,${a})`;
+const hzToMidi = f => 69 + 12 * Math.log2(f / 440);
+const midiToHz = m => 440 * Math.pow(2, (m - 69) / 12);
+const median = arr => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+const mod = (a, n) => ((a % n) + n) % n;
+
+/* ---------- canvas ---------- */
+const cvs = $('game'), ctx = cvs.getContext('2d');
+let W = 0, H = 0;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  cvs.width = W * dpr; cvs.height = H * dpr;
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize); resize();
+
+/* ---------- settings ---------- */
+const cfg = { mode: 'easy', tol: 50, speed: 1, ref: true, inst: 'piano' };
+let comf = 57, calibrated = false;
+document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.mode').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel'); cfg.mode = b.dataset.mode;
+  $('tol').value = cfg.mode === 'easy' ? 50 : 35; syncSliders();
+});
+function syncSliders() {
+  cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value;
+  $('tolV').textContent = '±' + cfg.tol + '¢'; $('spdV').textContent = cfg.speed.toFixed(1) + '×';
+}
+['tol', 'spd', 'ref', 'inst'].forEach(id => { $(id).oninput = syncSliders; $(id).onchange = syncSliders; }); syncSliders();
+try { const s = localStorage.getItem('pelota-inst'); if (s) { $('inst').value = s; syncSliders(); } } catch (e) {}
+$('inst').addEventListener('change', () => { try { localStorage.setItem('pelota-inst', cfg.inst); } catch (e) {} });
+$('try').onclick = async () => { syncSliders(); ensureCtx(); await actx.resume(); playTone(calibrated ? comf : 57); };
+
+/* ---------- audio ---------- */
+let actx = null, analyser = null, buf = null;
+function ensureCtx() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); }
+async function initMic() {
+  if (analyser) { await actx.resume(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('Este navegador no da acceso al micrófono. Abre el archivo en Chrome o Firefox.');
+  ensureCtx();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+  const src = actx.createMediaStreamSource(stream);
+  analyser = actx.createAnalyser(); analyser.fftSize = 2048;
+  src.connect(analyser);
+  buf = new Float32Array(analyser.fftSize);
+  await actx.resume();
+}
+
+// YIN pitch detection
+let yinD = null, yinC = null;
+function detectPitch(x, sr) {
+  const n = x.length;
+  let rms = 0; for (let i = 0; i < n; i++) rms += x[i] * x[i];
+  rms = Math.sqrt(rms / n);
+  if (rms < 0.012) return { f: 0, rms };
+  const tauMin = Math.floor(sr / 1100), tauMax = Math.min(Math.floor(sr / 65), Math.floor(n / 2));
+  const win = n - tauMax;
+  if (!yinD || yinD.length !== tauMax + 1) { yinD = new Float32Array(tauMax + 1); yinC = new Float32Array(tauMax + 1); }
+  for (let t = 1; t <= tauMax; t++) {
+    let s = 0;
+    for (let j = 0; j < win; j++) { const d = x[j] - x[j + t]; s += d * d; }
+    yinD[t] = s;
+  }
+  yinC[0] = 1; let run = 0;
+  for (let t = 1; t <= tauMax; t++) { run += yinD[t]; yinC[t] = run ? yinD[t] * t / run : 1; }
+  let tau = -1;
+  for (let t = tauMin; t <= tauMax; t++) {
+    if (yinC[t] < 0.13) { while (t + 1 <= tauMax && yinC[t + 1] < yinC[t]) t++; tau = t; break; }
+  }
+  if (tau < 0) return { f: 0, rms };
+  let better = tau;
+  if (tau > 1 && tau < tauMax) {
+    const a = yinC[tau - 1], b = yinC[tau], c = yinC[tau + 1], den = a + c - 2 * b;
+    if (den) better = tau + (a - c) / (2 * den);
+  }
+  return { f: sr / better, rms };
+}
+
+let hist = [], curMidi = null, voiced = false, silentF = 0, muteUntil = 0;
+function readPitch(now) {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(buf);
+  const r = detectPitch(buf, actx.sampleRate);
+  if (r.f > 0) {
+    hist.push(hzToMidi(r.f)); if (hist.length > 5) hist.shift();
+    curMidi = median(hist); voiced = true; silentF = 0;
+  } else if (++silentF > 5) { voiced = false; hist = []; }
+}
+const muted = now => now < muteUntil;
+
+/* ---------- instruments (all synthesized, no samples) ---------- */
+function noiseBuf(sec) {
+  const b = actx.createBuffer(1, Math.floor(actx.sampleRate * sec), actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function partial(dest, freq, amp, t, attack, tc, type = 'sine') {
+  if (freq >= actx.sampleRate / 2) return null;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(amp, t + attack);
+  if (tc) g.gain.setTargetAtTime(0, t + attack, tc);
+  o.connect(g).connect(dest); o.start(t); o.stop(t + 1.2);
+  return o;
+}
+const INST = {
+  piano(f, t, out) {
+    [[1, .30], [2, .14], [3, .08], [4, .045], [5, .03], [6, .015], [7, .01]].forEach(([h, a]) =>
+      partial(out, f * h * (1 + 0.0003 * h * h), a, t, 0.005, 0.45 / Math.sqrt(h)));
+    const n = actx.createBufferSource(), bp = actx.createBiquadFilter(), g = actx.createGain();
+    n.buffer = noiseBuf(0.03); bp.type = 'bandpass'; bp.frequency.value = Math.min(6000, f * 5); g.gain.value = 0.05;
+    n.connect(bp).connect(g).connect(out); n.start(t);
+  },
+  guitar(f, t, out, dur) {
+    // Karplus-Strong plucked string
+    const sr = actx.sampleRate, len = Math.floor(sr * dur), b = actx.createBuffer(1, len, sr), d = b.getChannelData(0);
+    const N = Math.max(2, Math.round(sr / f - 0.5)), ring = new Float32Array(N);
+    let p = 0; for (let i = 0; i < N; i++) { const r = Math.random() * 2 - 1; ring[i] = 0.5 * (r + p); p = r; }
+    let idx = 0, peak = 0;
+    for (let i = 0; i < len; i++) {
+      const nx = (idx + 1) % N, v = ring[idx];
+      d[i] = v; ring[idx] = 0.997 * 0.5 * (v + ring[nx]); idx = nx;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    for (let i = 0; i < len; i++) d[i] *= 0.45 / (peak || 1);
+    const s = actx.createBufferSource(); s.buffer = b;
+    s.playbackRate.value = f / (sr / (N + 0.5));   // corrige el redondeo del periodo para que quede afinada
+    s.connect(out); s.start(t);
+  },
+  marimba(f, t, out) {
+    partial(out, f, 0.38, t, 0.003, 0.28);
+    partial(out, f * 3.93, 0.12, t, 0.002, 0.06);
+    partial(out, f * 9.2, 0.03, t, 0.001, 0.02);
+  },
+  flute(f, t, out, dur) {
+    const env = actx.createGain();
+    env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(1, t + 0.08);
+    env.connect(out);
+    const lfo = actx.createOscillator(), lg = actx.createGain();
+    lfo.frequency.value = 5.2; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * 0.005, t + 0.35);
+    lfo.connect(lg); lfo.start(t); lfo.stop(t + dur + 0.1);
+    [[1, .26], [2, .05], [3, .02]].forEach(([h, a]) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = f * h; lg.connect(o.frequency); g.gain.value = a;
+      o.connect(g).connect(env); o.start(t); o.stop(t + dur + 0.1);
+    });
+    const n = actx.createBufferSource(), bp = actx.createBiquadFilter(), ng = actx.createGain();
+    n.buffer = noiseBuf(dur); bp.type = 'bandpass'; bp.frequency.value = Math.min(8000, f * 2); bp.Q.value = 1.5;
+    ng.gain.setValueAtTime(0.06, t); ng.gain.setTargetAtTime(0.015, t + 0.08, 0.1);
+    n.connect(bp).connect(ng).connect(env); n.start(t);
+  },
+  synth(f, t, out) { partial(out, f, 0.25, t, 0.03, 0, 'triangle'); }
+};
+function playTone(m) {
+  if (!actx) return;
+  const f = midiToHz(m), t = actx.currentTime + 0.01, dur = 0.8;
+  const out = actx.createGain();
+  out.gain.setValueAtTime(1, t); out.gain.setValueAtTime(1, t + dur - 0.1); out.gain.linearRampToValueAtTime(0, t + dur);
+  out.connect(actx.destination);
+  (INST[cfg.inst] || INST.piano)(f, t, out, dur);
+  muteUntil = performance.now() / 1000 + dur + 0.08;
+}
+addEventListener('keydown', e => {
+  if (e.code !== 'Space' || phase !== 'play') return;
+  e.preventDefault();
+  const w = G.walls.find(w => !w.done); if (w) playTone(toneMidi(w));
+});
+
+/* ---------- game state ---------- */
+let phase = 'menu';
+const HOLD = 0.55;              // seconds the ball spends inside a wall
+let G = null;
+const range = () => cfg.mode === 'easy' ? { lo: 0, hi: 11 } : { lo: comf - 9, hi: comf + 10 };
+
+function newGame() {
+  const now = performance.now() / 1000;
+  const travel = 3.2 / cfg.speed;
+  G = { score: 0, streak: 0, lives: 3, walls: [], floats: [], parts: [], trail: [], ballMidi: null,
+        travel, gap: 2.4 / cfg.speed, prev: cfg.mode === 'easy' ? pcOf(comf) : comf, count: 0, endAt: 0 };
+  addWall(now + Math.max(travel, 2.6), now + 0.4);
+  updHud();
+}
+function nextTarget() {
+  if (cfg.mode === 'easy') {
+    const step = Math.floor(Math.random() * 11) - 5;
+    return { target: mod(G.prev + step, 12), jump: 0 };
+  }
+  const { lo, hi } = range();
+  if (G.count > 1 && Math.random() < 0.35) {
+    if (G.prev + 12 <= hi && (Math.random() < 0.5 || G.prev - 12 < lo)) return { target: G.prev + 12, jump: 1 };
+    if (G.prev - 12 >= lo) return { target: G.prev - 12, jump: -1 };
+  }
+  let t = G.prev + Math.floor(Math.random() * 9) - 4;
+  t = Math.max(lo, Math.min(hi, t));
+  return { target: t, jump: 0 };
+}
+function addWall(tArrive, toneAt) {
+  const { target, jump } = G.count === 0 ? { target: G.prev, jump: 0 } : nextTarget();
+  G.prev = target; G.count++;
+  G.walls.push({ tArrive, toneAt, target, jump, toned: false, inF: 0, outF: 0, silF: 0, devOut: 0, done: false, pass: false, live: null });
+}
+const toneMidi = w => cfg.mode === 'easy' ? comf + mod(w.target - comf + 6, 12) - 6 : w.target;
+
+function devSemis(m, w) {
+  if (cfg.mode === 'easy') { let d = mod(m - w.target, 12); if (d >= 6) d -= 12; return d; }
+  return m - w.target;
+}
+
+/* ---------- layout ---------- */
+const TOP = 74, BOT = 26;
+function layout() {
+  const { lo, hi } = range(), rows = hi - lo + 1;
+  return { lo, rows, rowH: (H - TOP - BOT) / rows, baseY: H - BOT, ballX: Math.max(90, W * 0.25) };
+}
+function yOf(m, L) {
+  if (cfg.mode === 'easy') { const c = mod(m + 0.5, 12) - 0.5; return L.baseY - (c + 0.5) * L.rowH; }
+  return L.baseY - (m - L.lo + 0.5) * L.rowH;
+}
+
+/* ---------- loop ---------- */
+let last = performance.now() / 1000;
+function frame() {
+  const now = performance.now() / 1000, dt = Math.min(0.05, now - last); last = now;
+  readPitch(now);
+  if (phase === 'calib') calibStep(dt, now);
+  if (phase === 'play' || phase === 'ending') update(dt, now);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+
+function update(dt, now) {
+  const L = layout();
+  const speed = (W - L.ballX + 60) / G.travel, wallW = speed * HOLD;
+  // ball follows voice
+  const singing = voiced && !muted(now) && curMidi != null;
+  if (singing) {
+    if (G.ballMidi == null) G.ballMidi = curMidi;
+    if (cfg.mode === 'easy') G.ballMidi += 12 * Math.round((curMidi - G.ballMidi) / 12);
+    G.ballMidi += (curMidi - G.ballMidi) * Math.min(1, dt * 16);
+  }
+  if (G.ballMidi != null) {
+    G.trail.push({ y: yOf(G.ballMidi, L), on: singing }); if (G.trail.length > 26) G.trail.shift();
+  }
+  if (phase === 'ending') { if (now > G.endAt) showOver(); return; }
+
+  // spawn ahead
+  const lastW = G.walls[G.walls.length - 1];
+  if (lastW.tArrive - now < G.travel + G.gap) addWall(lastW.tArrive + G.gap, lastW.tArrive + HOLD / 2 + 0.05);
+
+  for (const w of G.walls) {
+    if (cfg.ref && !w.toned && now >= w.toneAt) { w.toned = true; playTone(toneMidi(w)); }
+    if (w.done) continue;
+    if (Math.abs(now - w.tArrive) <= HOLD / 2) {
+      if (!singing) { w.outF++; w.silF++; w.live = false; }
+      else {
+        const d = devSemis(G.ballMidi, w);
+        if (Math.abs(d) * 100 <= cfg.tol) { w.inF++; w.live = true; } else { w.outF++; w.devOut += d; w.live = false; }
+      }
+    } else if (now > w.tArrive + HOLD / 2) resolve(w, L);
+  }
+  G.walls = G.walls.filter(w => ballXof(w, now, L, speed) > -wallW);
+  G.floats = G.floats.filter(f => now - f.t < 1.1);
+  G.parts = G.parts.filter(p => (p.life -= dt) > 0);
+  G.parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; });
+}
+const ballXof = (w, now, L, speed) => L.ballX + (w.tArrive - now) * speed;
+
+function resolve(w, L) {
+  w.done = true; w.live = null;
+  const tot = w.inF + w.outF, frac = tot ? w.inF / tot : 0;
+  const by = G.ballMidi != null ? yOf(G.ballMidi, L) : H / 2;
+  if (frac >= 0.6) {
+    w.pass = true; G.streak++;
+    const pts = Math.round((10 + 2 * Math.min(G.streak, 20)) * (w.jump ? 1.5 : 1));
+    G.score += pts;
+    G.floats.push({ text: (w.jump ? '¡Salto! ' : '¡Bien! ') + '+' + pts, color: '#5be39b', y: by, t: performance.now() / 1000 });
+    for (let i = 0; i < 18; i++) G.parts.push({ x: L.ballX, y: by, vx: (Math.random() - .3) * 260, vy: (Math.random() - .7) * 260, life: .8, c: colorOf(cfg.mode === 'easy' ? w.target : pcOf(w.target)) });
+  } else {
+    G.streak = 0; G.lives--;
+    let msg = 'Sin voz';
+    if (w.silF < tot / 2) msg = w.devOut > 0 ? 'Muy alto ↑' : 'Muy bajo ↓';
+    if (cfg.mode === 'hard' && w.silF < tot / 2 && Math.abs(Math.abs(w.devOut / Math.max(1, w.outF - w.silF)) - 12) < 1) msg = 'Octava equivocada';
+    G.floats.push({ text: msg, color: '#ff6b7a', y: by, t: performance.now() / 1000 });
+    if (G.lives <= 0) { phase = 'ending'; G.endAt = performance.now() / 1000 + 0.9; }
+  }
+  updHud();
+}
+
+function updHud() {
+  $('score').textContent = G.score; $('streak').textContent = G.streak;
+  $('lives').textContent = '❤'.repeat(Math.max(0, G.lives)) + '♡'.repeat(3 - Math.max(0, G.lives));
+}
+
+/* ---------- drawing ---------- */
+function draw(now) {
+  ctx.fillStyle = '#0e1020'; ctx.fillRect(0, 0, W, H);
+  if (phase !== 'play' && phase !== 'ending') return;
+  const L = layout();
+  const speed = (W - L.ballX + 60) / G.travel, wallW = speed * HOLD;
+
+  // note guides
+  ctx.font = '600 12px system-ui'; ctx.textBaseline = 'middle';
+  for (let i = 0; i < L.rows; i++) {
+    const m = L.lo + i, y = L.baseY - (i + 0.5) * L.rowH, pc = cfg.mode === 'easy' ? m : pcOf(m);
+    const home = cfg.mode === 'hard' && m === comf;
+    ctx.fillStyle = home ? '#ffffff10' : (i % 2 ? '#ffffff05' : '#ffffff00');
+    ctx.fillRect(0, y - L.rowH / 2, W, L.rowH);
+    ctx.fillStyle = colorOf(pc, 0.9);
+    ctx.fillText(cfg.mode === 'easy' ? NAMES[pc] : nameOf(m) + (home ? ' ⌂' : ''), 10, y);
+  }
+
+  // walls
+  for (const w of G.walls) {
+    const x = ballXof(w, now, L, speed); if (x > W + wallW) continue;
+    const pc = cfg.mode === 'easy' ? w.target : pcOf(w.target);
+    const gy = yOf(w.target, L), gh = Math.max(4, cfg.tol / 100 * L.rowH);
+    const x0 = x - wallW / 2;
+    let body = colorOf(pc, 0.22), edge = colorOf(pc, 1);
+    if (w.done) { body = w.pass ? '#5be39b22' : '#ff6b7a22'; edge = w.pass ? '#5be39b' : '#ff6b7a'; }
+    else if (w.live === true) { body = '#5be39b33'; edge = '#5be39b'; }
+    else if (w.live === false) { body = '#ff6b7a33'; edge = '#ff6b7a'; }
+    ctx.fillStyle = body;
+    ctx.fillRect(x0, 0, wallW, gy - gh); ctx.fillRect(x0, gy + gh, wallW, H - gy - gh);
+    ctx.fillStyle = edge;
+    ctx.fillRect(x0, gy - gh - 3, wallW, 3); ctx.fillRect(x0, gy + gh, wallW, 3);
+    // label
+    ctx.textAlign = 'center'; ctx.font = '700 14px system-ui';
+    const label = cfg.mode === 'easy' ? NAMES[pc] : nameOf(w.target);
+    ctx.fillStyle = edge; ctx.fillText(label, x, gy - gh - 16);
+    if (w.jump) {
+      ctx.font = '800 13px system-ui'; ctx.fillStyle = '#ffcc4d';
+      ctx.fillText(w.jump > 0 ? '8va ↑' : '8va ↓', x, gy - gh - 34);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // ball
+  const r = Math.max(7, Math.min(14, L.rowH * 0.32));
+  const singing = voiced && !muted(now);
+  for (let i = 1; i < G.trail.length; i++) {
+    const a = G.trail[i - 1], b = G.trail[i];
+    if (Math.abs(a.y - b.y) > H / 3 || !b.on) continue;
+    const t = i / G.trail.length;
+    ctx.strokeStyle = `rgba(255,255,255,${t * 0.35})`; ctx.lineWidth = r * t;
+    ctx.beginPath();
+    ctx.moveTo(L.ballX - (G.trail.length - i + 1) * 5, a.y); ctx.lineTo(L.ballX - (G.trail.length - i) * 5, b.y); ctx.stroke();
+  }
+  if (G.ballMidi != null) {
+    let y = yOf(G.ballMidi, L);
+    const ys = [y];
+    if (cfg.mode === 'easy') { ys.push(y + 12 * L.rowH, y - 12 * L.rowH); }
+    const col = colorOf(pcOf(G.ballMidi));
+    for (let yy of ys) {
+      if (yy < -r || yy > H + r) continue;
+      let arrow = 0;
+      if (cfg.mode === 'hard') { if (yy < TOP) { yy = TOP; arrow = -1; } if (yy > L.baseY) { yy = L.baseY; arrow = 1; } }
+      ctx.beginPath(); ctx.arc(L.ballX, yy, r, 0, Math.PI * 2);
+      if (singing) { ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0; }
+      else { ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 2; ctx.stroke(); }
+      if (arrow) { ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(arrow < 0 ? '▲' : '▼', L.ballX, yy + arrow * (r + 10)); ctx.textAlign = 'left'; }
+    }
+  } else {
+    ctx.fillStyle = '#9aa0c3'; ctx.font = '14px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('canta para mover la pelota', L.ballX, H / 2); ctx.textAlign = 'left';
+  }
+  if (muted(now)) {
+    ctx.font = '600 14px system-ui'; ctx.fillStyle = '#ffcc4d'; ctx.textAlign = 'center';
+    ctx.fillText('🔊 escucha…', L.ballX, TOP + 4); ctx.textAlign = 'left';
+  }
+
+  // particles & floats
+  for (const p of G.parts) { ctx.globalAlpha = Math.max(0, p.life / .8); ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 4, 4); }
+  ctx.globalAlpha = 1;
+  ctx.font = '800 18px system-ui'; ctx.textAlign = 'center';
+  for (const f of G.floats) {
+    const t = now - f.t; ctx.globalAlpha = Math.max(0, 1 - t / 1.1); ctx.fillStyle = f.color;
+    ctx.fillText(f.text, L.ballX + 40, f.y - 30 - t * 40);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
+
+  // HUD note readout
+  if (voiced && curMidi != null && !muted(now)) {
+    const c = Math.round((curMidi - Math.round(curMidi)) * 100);
+    $('note').textContent = (cfg.mode === 'easy' ? NAMES[pcOf(curMidi)] : nameOf(curMidi)) + ' ' + (c >= 0 ? '+' : '') + c + '¢';
+  } else $('note').textContent = '—';
+}
+
+/* ---------- calibration ---------- */
+let calVals = [], calTime = 0;
+function startCalib() {
+  calVals = []; calTime = 0; phase = 'calib';
+  show('calib');
+  $('calibGo').classList.add('hidden'); $('calibRedo').classList.add('hidden'); $('calibSkip').classList.remove('hidden');
+  $('calibBar').style.width = '0%'; $('calibNote').textContent = '—'; $('calibSub').textContent = 'esperando tu voz…';
+}
+function calibStep(dt) {
+  if (!voiced || curMidi == null) { $('calibSub').textContent = 'esperando tu voz…'; calTime = Math.max(0, calTime - dt); }
+  else {
+    if (calVals.length && Math.abs(curMidi - median(calVals)) > 0.8) { calVals = []; calTime = 0; }
+    calVals.push(curMidi); calTime += dt;
+    $('calibNote').textContent = nameOf(curMidi);
+    $('calibSub').textContent = 'mantenla…';
+  }
+  $('calibBar').style.width = Math.min(100, calTime / 1.6 * 100) + '%';
+  if (calTime >= 1.6) {
+    comf = Math.round(median(calVals)); calibrated = true; phase = 'calibDone';
+    $('calibNote').textContent = nameOf(comf);
+    $('calibSub').textContent = 'Tu nota de casa. En modo difícil jugarás entre ' + nameOf(comf - 9) + ' y ' + nameOf(comf + 10) + '.';
+    $('calibGo').classList.remove('hidden'); $('calibRedo').classList.remove('hidden'); $('calibSkip').classList.add('hidden');
+    $('recal').classList.remove('hidden');
+  }
+}
+
+/* ---------- screens ---------- */
+function show(id) {
+  ['menu', 'calib', 'over'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+  $('hud').classList.toggle('hidden', id !== null);
+}
+function play() { syncSliders(); newGame(); phase = 'play'; show(null); }
+function showOver() {
+  phase = 'over';
+  const key = 'pelota-best-' + cfg.mode; let best = 0;
+  try { best = +(localStorage.getItem(key) || 0); if (G.score > best) { localStorage.setItem(key, G.score); } } catch (e) {}
+  $('finalScore').textContent = G.score;
+  $('finalSub').textContent = (G.score > best ? '¡Nuevo récord!' : 'Récord: ' + best) + ' · modo ' + (cfg.mode === 'easy' ? 'fácil' : 'difícil');
+  show('over');
+}
+
+async function begin(forceCalib) {
+  $('err').classList.add('hidden');
+  try { await initMic(); }
+  catch (e) {
+    $('err').textContent = (e && e.name === 'NotAllowedError') ? 'Necesito permiso para usar el micrófono. Revisa el ícono del candado en la barra de direcciones.' : (e.message || 'No pude abrir el micrófono.');
+    $('err').classList.remove('hidden'); return;
+  }
+  if (!calibrated || forceCalib) startCalib(); else play();
+}
+$('start').onclick = () => begin(false);
+$('recal').onclick = () => begin(true);
+$('calibGo').onclick = play;
+$('calibRedo').onclick = startCalib;
+$('calibSkip').onclick = () => { comf = 57; calibrated = true; $('recal').classList.remove('hidden'); play(); };
+$('again').onclick = play;
+$('toMenu').onclick = () => { phase = 'menu'; show('menu'); };
+$('quit').onclick = () => { phase = 'menu'; show('menu'); };
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
