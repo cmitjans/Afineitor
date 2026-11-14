@@ -440,7 +440,14 @@ function update(dt, now) {
       if (onNote) w.entered = true;
       else if (G.v > 0) bounce(w, now, L, singing, front - rU);
       else G.scroll = front - rU;
-    } else if (w.entered && G.scroll - rU > back) pass(w, now, L);
+    } else if (w.entered) {
+      if (G.scroll - rU > back) pass(w, now, L);
+      else {
+        // inside the tunnel and off the note for too long: push the ball back out instead of waiting forever
+        w.offT = onNote ? 0 : (w.offT || 0) + dt;
+        if (w.offT > 0.8) { w.entered = false; w.offT = 0; G.v = 1; bounce(w, now, L, singing, front - rU); }
+      }
+    }
   }
 
   if (G.ballMidi != null) {
@@ -489,13 +496,7 @@ function updHud() {
 
 // ball's screen y; inside a tunnel it is kept within the gap
 function ballY(L, now) {
-  let y = yOf(G.ballMidi, L);
-  const w = G.walls.find(w => !w.done);
-  if (w && w.entered) {
-    const gy = nearestGapY(w, L, y), gh = gapHalf(L);
-    y = Math.max(gy - gh, Math.min(gy + gh, y));
-  }
-  return y;
+  return yOf(G.ballMidi, L);   // always the real position, so what you see is what the game hears
 }
 function nearestGapY(w, L, y) {
   const gy = yOf(w.target, L);
@@ -666,6 +667,8 @@ $('again').onclick = play;
 $('toMenu').onclick = () => { phase = 'menu'; show('menu'); };
 $('quit').onclick = () => { if (G && G.passed > 0) showOver(); else { phase = 'menu'; show('menu'); } };
 
+document.addEventListener('visibilitychange', () => { if (!document.hidden && actx) actx.resume(); });
+addEventListener('pointerdown', () => { if (actx && actx.state !== 'running') actx.resume(); });
 requestAnimationFrame(frame);
 })();
 </script>
