@@ -41,6 +41,17 @@
   .meter i{position:absolute;left:0;top:0;bottom:0;width:var(--lv,0%);background:#9aa0c3;transition:width .05s}
   .meter.on i{background:var(--ok)}
   .meter b{position:absolute;top:0;bottom:0;left:var(--g,10%);width:2px;background:#fff}
+  @media (max-width:600px){
+    #hud{gap:12px;padding:0 10px}
+    #hud .v{font-size:17px}
+    #hud .k{font-size:10px;letter-spacing:.04em}
+    #note{min-width:0}
+    .meter{width:70px}
+    #quit{padding:7px 9px;font-size:12px}
+    .hide-narrow{display:none}
+    .modes{grid-template-columns:1fr}
+    .card{padding:20px}
+  }
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -52,7 +63,7 @@
   <div><div class="k">Puntos</div><div class="v" id="score">0</div></div>
   <div><div class="k">Racha</div><div class="v" id="streak">0</div></div>
   <div><div class="k">Notas</div><div class="v" id="passed">0</div></div>
-  <div><div class="k">A la primera</div><div class="v" id="clean">—</div></div>
+  <div class="hide-narrow"><div class="k">A la primera</div><div class="v" id="clean">—</div></div>
   <div class="grow"></div>
   <div><div class="k" style="text-align:right">Tu voz</div><div class="v" id="note">—</div><div class="meter" id="meter"><i></i><b></b></div></div>
   <button id="quit">Terminar</button>
@@ -70,6 +81,7 @@
     <label class="row">Tolerancia <input type="range" id="tol" min="15" max="80" step="5" value="55"><span class="val" id="tolV">±55¢</span></label>
     <label class="row">Sensibilidad del micrófono <input type="range" id="sens" min="1" max="5" step="1" value="3"><span class="val" id="sensV">media</span></label>
     <label class="row">Velocidad <input type="range" id="spd" min="0.6" max="1.6" step="0.1" value="1"><span class="val" id="spdV">1.0×</span></label>
+    <label class="row">Estoy usando audífonos <input type="checkbox" id="phones" style="accent-color:var(--acc);width:18px;height:18px"></label>
     <label class="row">Tocar la nota antes de cada muro <input type="checkbox" id="ref" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
     <label class="row">Instrumento
       <span style="display:flex;gap:8px;align-items:center">
@@ -88,7 +100,7 @@
       <button class="sec hidden" id="recal">Recalibrar voz</button>
     </div>
     <div class="err hidden" id="err"></div>
-    <div class="hint">El micrófono escucha siempre, también mientras suena la nota: con audífonos funciona mejor. Si no te detecta, sube la sensibilidad; si la pelota se mueve sola, bájala. Durante el juego, la barra espaciadora repite la nota que viene. 100 cents = 1 semitono.</div>
+    <div class="hint">Con audífonos el micrófono escucha siempre, también mientras suena la nota; con parlante hace una pausa para no escucharse a sí mismo. Si no te detecta, sube la sensibilidad; si la pelota se mueve sola, bájala. Durante el juego, la barra espaciadora repite la nota que viene. 100 cents = 1 semitono.</div>
   </div>
 </div>
 
@@ -101,6 +113,7 @@
     <div class="bar"><i id="calibBar"></i></div>
     <div class="small" style="text-align:left;margin-bottom:6px">Nivel del micrófono (la raya blanca es el mínimo para que te escuche):</div>
     <div class="meter wide" id="meterC"><i></i><b></b></div>
+    <div class="small" id="diag" style="margin-top:10px"></div>
     <div class="btns">
       <button class="main hidden" id="calibGo">¡Jugar!</button>
       <button class="sec hidden" id="calibRedo">Repetir</button>
@@ -151,7 +164,7 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 /* ---------- settings ---------- */
-const cfg = { mode: 'easy', tol: 55, speed: 1, ref: true, inst: 'piano', sens: 3 };
+const cfg = { mode: 'easy', tol: 55, speed: 1, ref: true, inst: 'piano', sens: 3, phones: false };
 let comf = 57, calibrated = false;
 document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
   document.querySelectorAll('.mode').forEach(x => x.classList.remove('sel'));
@@ -159,24 +172,33 @@ document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
   $('tol').value = { easy: 55, medium: 45, hard: 35 }[cfg.mode]; syncSliders();
 });
 function syncSliders() {
-  cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value; cfg.sens = +$('sens').value;
+  cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value; cfg.sens = +$('sens').value; cfg.phones = $('phones').checked;
   $('sensV').textContent = ['muy baja', 'baja', 'media', 'alta', 'muy alta'][cfg.sens - 1];
   $('tolV').textContent = '±' + cfg.tol + '¢'; $('spdV').textContent = cfg.speed.toFixed(1) + '×';
 }
-['tol', 'spd', 'ref', 'inst', 'sens'].forEach(id => { $(id).oninput = syncSliders; $(id).onchange = syncSliders; }); syncSliders();
+['tol', 'spd', 'ref', 'inst', 'sens', 'phones'].forEach(id => { $(id).oninput = syncSliders; $(id).onchange = syncSliders; }); syncSliders();
 try { const s = localStorage.getItem('pelota-inst'); if (s) { $('inst').value = s; syncSliders(); } } catch (e) {}
 $('inst').addEventListener('change', () => { try { localStorage.setItem('pelota-inst', cfg.inst); } catch (e) {} });
+try { if (localStorage.getItem('pelota-phones') === '1') { $('phones').checked = true; syncSliders(); } } catch (e) {}
+$('phones').addEventListener('change', () => { try { localStorage.setItem('pelota-phones', cfg.phones ? '1' : '0'); } catch (e) {} });
 $('try').onclick = async () => { syncSliders(); ensureCtx(); await actx.resume(); playTone(calibrated ? comf : 57); };
 
 /* ---------- audio ---------- */
-let actx = null, analyser = null, buf = null;
+let actx = null, analyser = null, buf = null, micInfo = '';
 function ensureCtx() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); }
 async function initMic() {
   if (analyser) { await actx.resume(); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
     throw new Error('Este navegador no da acceso al micrófono. Abre el archivo en Chrome o Firefox.');
   ensureCtx();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+  // Micrófono "crudo": en los celulares, la cancelación de eco y la supresión de ruido tratan una nota sostenida
+  // como si fuera ruido y la atenúan o la cortan. Por eso van apagadas.
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  try {
+    const st = stream.getAudioTracks()[0].getSettings(), onoff = v => v === undefined ? '?' : v ? 'sí' : 'no';
+    micInfo = 'Micrófono: cancelación de eco ' + onoff(st.echoCancellation) + ' · supresión de ruido ' + onoff(st.noiseSuppression) +
+              ' · ganancia automática ' + onoff(st.autoGainControl) + ' · ' + Math.round(actx.sampleRate / 100) / 10 + ' kHz';
+  } catch (e) {}
   const src = actx.createMediaStreamSource(stream);
   analyser = actx.createAnalyser(); analyser.fftSize = 2048;
   src.connect(analyser);
@@ -185,9 +207,12 @@ async function initMic() {
 }
 
 // YIN pitch detection
-let yinD = null, yinC = null;
-function detectPitch(x, sr, gate) {
-  const n = x.length;
+let yinD = null, yinC = null, dec = null;
+function detectPitch(x0, sr0, gate) {
+  const n = x0.length >> 1, sr = sr0 / 2;
+  if (!dec || dec.length !== n) dec = new Float32Array(n);
+  for (let i = 0; i < n; i++) dec[i] = 0.5 * (x0[2 * i] + x0[2 * i + 1]);
+  const x = dec;
   let rms = 0; for (let i = 0; i < n; i++) rms += x[i] * x[i];
   rms = Math.sqrt(rms / n);
   if (rms < gate) return { f: 0, rms };
@@ -232,6 +257,7 @@ let hist = [], curMidi = null, voiced = false, silentF = 0, muteUntil = 0;
 let micLevel = 0, noiseFloor = 0.004, gateNow = 0.008;
 function readPitch(now) {
   if (!analyser) return;
+  if (!cfg.phones && muted(now)) { drawMeter(); return; }   // con parlante: no escucharse a sí mismo
   analyser.getFloatTimeDomainData(buf);
   gateNow = Math.max(0.0025, Math.min(0.03, noiseFloor * 2.5)) * SENS[cfg.sens - 1];
   const r = detectPitch(buf, actx.sampleRate, gateNow);
@@ -636,7 +662,7 @@ function draw(now) {
 let calVals = [], calTime = 0;
 function startCalib() {
   calVals = []; calTime = 0; phase = 'calib';
-  show('calib');
+  show('calib'); $('diag').textContent = micInfo;
   $('calibGo').classList.add('hidden'); $('calibRedo').classList.add('hidden'); $('calibSkip').classList.remove('hidden');
   $('calibBar').style.width = '0%'; $('calibNote').textContent = '—'; $('calibSub').textContent = 'esperando tu voz…';
 }
