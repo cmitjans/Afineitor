@@ -254,20 +254,24 @@ function detectPitch(x0, sr0, gate) {
 // The "Sensibilidad" setting moves it up or down.
 const SENS = [2.2, 1.5, 1, 0.65, 0.4];
 let hist = [], curMidi = null, voiced = false, silentF = 0, muteUntil = 0;
-let micLevel = 0, noiseFloor = 0.004, gateNow = 0.008;
+let micLevel = 0, noiseFloor = 0.004, gateNow = 0.008, sinceVoice = 99;
 function readPitch(now) {
   if (!analyser) return;
   if (!cfg.phones && muted(now)) { drawMeter(); return; }   // con parlante: no escucharse a sí mismo
   analyser.getFloatTimeDomainData(buf);
-  gateNow = Math.max(0.0025, Math.min(0.03, noiseFloor * 2.5)) * SENS[cfg.sens - 1];
+  gateNow = Math.max(0.0025, Math.min(0.012, noiseFloor * 2.5)) * SENS[cfg.sens - 1];
+  if (voiced) gateNow *= 0.5;   // ya cantando, se exige menos volumen para seguir escuchando (histéresis)
   const r = detectPitch(buf, actx.sampleRate, gateNow);
   micLevel = r.rms;
   if (r.f > 0) {
     hist.push(hzToMidi(r.f)); if (hist.length > 5) hist.shift();
-    curMidi = median(hist); voiced = true; silentF = 0;
+    curMidi = median(hist); voiced = true; silentF = 0; sinceVoice = 0;
   } else {
-    // background noise: follow quickly downwards, slowly upwards
-    noiseFloor += (r.rms - noiseFloor) * (r.rms < noiseFloor ? 0.2 : 0.004);
+    // Ruido de fondo: baja rápido, pero solo sube en silencio de verdad (medio segundo sin voz y bajo el umbral).
+    // Antes subía también con los cuadros "dudosos" de una nota sostenida, hasta que el umbral pasaba a la voz.
+    sinceVoice++;
+    if (r.rms < noiseFloor) noiseFloor += (r.rms - noiseFloor) * 0.2;
+    else if (sinceVoice > 30 && r.rms < gateNow) noiseFloor += (r.rms - noiseFloor) * 0.004;
     if (++silentF > 9) { voiced = false; hist = []; }   // ~150 ms of grace for breaths and consonants
   }
   drawMeter();
