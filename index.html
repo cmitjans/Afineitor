@@ -21,7 +21,7 @@
   h1{margin:0 0 4px;font-size:30px}
   h2{margin:0 0 10px;font-size:22px}
   p{color:var(--mute);line-height:1.45;margin:6px 0 16px}
-  .modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:12px 0 18px}
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0 18px}
   .mode{background:#ffffff0d;border:2px solid transparent;border-radius:14px;padding:14px;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
   .mode b{display:block;font-size:16px;margin-bottom:4px}
   .mode span{font-size:13px;color:var(--mute)}
@@ -52,6 +52,9 @@
     .modes{grid-template-columns:1fr}
     .card{padding:20px}
   }
+  .sel2,#custom{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
+  .sel2 option{color:#111}
+  #custom{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -77,6 +80,24 @@
       <button class="mode sel" data-mode="easy"><b>Fácil</b><span>Solo notas naturales: Do, Re, Mi, Fa, Sol, La, Si. La octava no importa.</span></button>
       <button class="mode" data-mode="medium"><b>Medio</b><span>Se suman los sostenidos y bemoles. La octava todavía no importa.</span></button>
       <button class="mode" data-mode="hard"><b>Difícil</b><span>Octava exacta con saltos de octava, y ritmo: notas cortas, largas y más seguidas.</span></button>
+      <button class="mode" data-mode="song"><b>Canción</b><span>Melodías con frases y ritmo: escuchas la frase y la cantas. Octava exacta.</span></button>
+    </div>
+    <div id="songRow" class="hidden">
+      <label class="row">Canción
+        <select id="song" class="sel2">
+          <option value="gen">Inventada (nueva cada vez)</option>
+          <option value="ode">Himno a la Alegría (Beethoven)</option>
+          <option value="star">Estrellita, ¿dónde estás?</option>
+          <option value="clair">Au clair de la lune</option>
+          <option value="mary">Mary tenía un corderito</option>
+          <option value="jingle">Jingle Bells</option>
+          <option value="custom">Mi propia melodía…</option>
+        </select>
+      </label>
+      <div id="customBox" class="hidden">
+        <textarea id="custom" rows="4" spellcheck="false" placeholder="Do Do Sol Sol La La Sol2 | Fa Fa Mi Mi Re Re Do2"></textarea>
+        <div class="hint" style="margin-top:6px">Notas separadas por espacios (Do Re Mi… o C D E…). Un número es la duración en tiempos (Sol2). # y b para sostenido y bemol (Fa#, Sib). ' sube una octava y , la baja (Do'). - es un silencio. Usa | o una línea nueva para separar frases. El juego la lleva sola al rango de tu voz.</div>
+      </div>
     </div>
     <label class="row">Tolerancia <input type="range" id="tol" min="15" max="80" step="5" value="55"><span class="val" id="tolV">±55¢</span></label>
     <label class="row">Sensibilidad del micrófono <input type="range" id="sens" min="1" max="5" step="1" value="3"><span class="val" id="sensV">media</span></label>
@@ -142,7 +163,7 @@ const FLATS = ['Do','Re♭','Re','Mi♭','Mi','Fa','Sol♭','Sol','La♭','La','
 const BOTH  = NAMES.map((n, i) => n === FLATS[i] ? n : n + '/' + FLATS[i]);
 const NATURALS = [0, 2, 4, 5, 7, 9, 11];
 const isBlack = pc => !NATURALS.includes(pc);
-const WRAP = () => cfg.mode !== 'hard';          // fácil y medio: la octava no importa
+const WRAP = () => cfg.mode === 'easy' || cfg.mode === 'medium';          // fácil y medio: la octava no importa
 const pcOf = m => ((Math.round(m) % 12) + 12) % 12;
 const nameOf = (m, flat) => (flat ? FLATS : NAMES)[pcOf(m)] + (Math.floor(Math.round(m) / 12) - 1);
 const colorOf = (pc, a = 1) => `hsla(${(pc * 30 + 200) % 360},85%,64%,${a})`;
@@ -169,7 +190,8 @@ let comf = 57, calibrated = false;
 document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
   document.querySelectorAll('.mode').forEach(x => x.classList.remove('sel'));
   b.classList.add('sel'); cfg.mode = b.dataset.mode;
-  $('tol').value = { easy: 55, medium: 45, hard: 35 }[cfg.mode]; syncSliders();
+  $('tol').value = { easy: 55, medium: 45, hard: 35, song: 45 }[cfg.mode]; syncSliders();
+  $('songRow').classList.toggle('hidden', cfg.mode !== 'song');
 });
 function syncSliders() {
   cfg.tol = +$('tol').value; cfg.speed = +$('spd').value; cfg.ref = $('ref').checked; cfg.inst = $('inst').value; cfg.sens = +$('sens').value; cfg.phones = $('phones').checked;
@@ -180,6 +202,11 @@ function syncSliders() {
 try { const s = localStorage.getItem('pelota-inst'); if (s) { $('inst').value = s; syncSliders(); } } catch (e) {}
 $('inst').addEventListener('change', () => { try { localStorage.setItem('pelota-inst', cfg.inst); } catch (e) {} });
 try { if (localStorage.getItem('pelota-phones') === '1') { $('phones').checked = true; syncSliders(); } } catch (e) {}
+const syncSong = () => $('customBox').classList.toggle('hidden', $('song').value !== 'custom');
+try { const a = localStorage.getItem('pelota-song'), b = localStorage.getItem('pelota-custom'); if (a) $('song').value = a; if (b) $('custom').value = b; } catch (e) {}
+syncSong();
+$('song').addEventListener('change', () => { syncSong(); try { localStorage.setItem('pelota-song', $('song').value); } catch (e) {} });
+$('custom').addEventListener('input', () => { try { localStorage.setItem('pelota-custom', $('custom').value); } catch (e) {} });
 $('phones').addEventListener('change', () => { try { localStorage.setItem('pelota-phones', cfg.phones ? '1' : '0'); } catch (e) {} });
 $('try').onclick = async () => { syncSliders(); ensureCtx(); await actx.resume(); playTone(calibrated ? comf : 57); };
 
@@ -351,14 +378,14 @@ const INST = {
   },
   synth(f, t, out) { partial(out, f, 0.25, t, 0.03, 0, 'triangle'); }
 };
-function playTone(m) {
+function playTone(m, delay = 0, durIn) {
   if (!actx) return;
-  const f = midiToHz(m), t = actx.currentTime + 0.01, dur = cfg.mode === 'hard' ? 0.5 : 0.8;
+  const f = midiToHz(m), t = actx.currentTime + 0.01 + delay, dur = durIn || (cfg.mode === 'hard' || cfg.mode === 'song' ? 0.5 : 0.8);
   const out = actx.createGain();
   out.gain.setValueAtTime(1, t); out.gain.setValueAtTime(1, t + dur - 0.1); out.gain.linearRampToValueAtTime(0, t + dur);
   out.connect(actx.destination);
   (INST[cfg.inst] || INST.piano)(f, t, out, dur);
-  muteUntil = performance.now() / 1000 + dur + 0.08;
+  muteUntil = Math.max(muteUntil, performance.now() / 1000 + delay + dur + 0.08);
 }
 addEventListener('keydown', e => {
   if (e.code !== 'Space' || phase !== 'play') return;
@@ -368,9 +395,10 @@ addEventListener('keydown', e => {
 
 /* ---------- game state ---------- */
 let phase = 'menu';
+const AUTO = /[?&]auto=1/.test(location.search);   // demo/prueba: la pelota canta sola
 const HOLD = 0.55;              // tunnel length, in "travel seconds"
 let G = null;
-const range = () => WRAP() ? { lo: 0, hi: 11 } : { lo: comf - 9, hi: comf + 10 };
+const range = () => WRAP() ? { lo: 0, hi: 11 } : cfg.mode === 'song' && G && G.lo != null ? { lo: G.lo, hi: G.hi } : { lo: comf - 9, hi: comf + 10 };
 
 // World positions are measured in seconds of normal travel, so the game feels the same at any screen size.
 function newGame() {
@@ -380,8 +408,9 @@ function newGame() {
         travel, gapT: 2.4 / cfg.speed, scroll: 0, v: 1, shake: 0,
         prev: cfg.mode === 'easy' ? NATURALS.reduce((a, b) => b <= pcOf(comf) ? b : a, 0) : WRAP() ? pcOf(comf) : comf,
         count: 0, pendingTone: null, lastReplay: 0 };
-  addWall(Math.max(travel, 2.6));
-  G.pendingTone = { at: now + 0.4, w: G.walls[0] };
+  muteUntil = 0;
+  if (cfg.mode === 'song') { G.travel = 4.8 / cfg.speed; buildSong(); }
+  else { addWall(Math.max(travel, 2.6)); G.pendingTone = { at: now + 0.4, w: G.walls[0] }; }
   updHud();
 }
 function nextTarget() {
@@ -420,6 +449,108 @@ function spawnNext(lastW) {
   const w = G.walls[G.walls.length - 1];
   w.s = Math.max(w.s, lastW.s + (lastW.hold + w.hold) / 2 + 0.45);
 }
+/* ---------- nivel Canción ---------- */
+const SONGS = {
+  ode:    { name: 'Himno a la Alegría (Beethoven)', txt: 'Mi Mi Fa Sol Sol Fa Mi Re | Do Do Re Mi Mi Re Re2 | Mi Mi Fa Sol Sol Fa Mi Re | Do Do Re Mi Re Do Do2' },
+  star:   { name: 'Estrellita, ¿dónde estás?', txt: 'Do Do Sol Sol La La Sol2 | Fa Fa Mi Mi Re Re Do2 | Sol Sol Fa Fa Mi Mi Re2 | Sol Sol Fa Fa Mi Mi Re2 | Do Do Sol Sol La La Sol2 | Fa Fa Mi Mi Re Re Do2' },
+  clair:  { name: 'Au clair de la lune', txt: 'Do Do Do Re Mi2 Re2 | Do Mi Re Re Do3 | Do Do Do Re Mi2 Re2 | Do Mi Re Re Do3' },
+  mary:   { name: 'Mary tenía un corderito', txt: 'Mi Re Do Re Mi Mi Mi2 | Re Re Re2 Mi Sol Sol2 | Mi Re Do Re Mi Mi Mi Mi | Re Re Mi Re Do3' },
+  jingle: { name: 'Jingle Bells', txt: 'Mi Mi Mi2 Mi Mi Mi2 | Mi Sol Do Re Mi3 | Fa Fa Fa Fa Fa Mi Mi Mi | Mi Re Re Mi Re2 Sol2' }
+};
+const SOLF = { do: 0, re: 2, mi: 4, fa: 5, sol: 7, la: 9, si: 11, c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+// "Do Re Mi2 Fa# Sib Do' La, - |"  ->  frases de { n: semitonos desde Do, d: tiempos }
+function parseSong(txt) {
+  const phrases = []; let total = 0;
+  for (const line of String(txt).split(/[|\n]+/)) {
+    let ph = [], beats = 0;
+    for (const tok of line.trim().split(/\s+/)) {
+      if (!tok) continue;
+      let m = tok.match(/^[-_](\d+(?:\.\d+)?)?$/);
+      if (m) { ph.push({ rest: true, d: Math.min(8, +(m[1] || 1)) }); continue; }
+      m = tok.match(/^(do|re|mi|fa|sol|la|si|[a-g])(#|♯|b|♭)?([',]*)(\d+(?:\.\d+)?)?$/i);
+      if (!m) throw new Error('No entiendo "' + tok + '" en tu melodía.');
+      let n = SOLF[m[1].toLowerCase()];
+      const flat = m[2] === 'b' || m[2] === '♭';
+      if (m[2]) n += flat ? -1 : 1;
+      for (const ch of m[3]) n += ch === "'" ? 12 : -12;
+      const d = Math.max(0.5, Math.min(8, +(m[4] || 1)));
+      if (beats >= 8) { phrases.push(ph); ph = []; beats = 0; }     // frases largas se cortan solas
+      ph.push({ n, d, flat }); beats += d;
+      if (++total > 300) throw new Error('La melodía es muy larga (máximo 300 notas).');
+    }
+    if (ph.some(x => !x.rest)) phrases.push(ph);
+  }
+  if (!phrases.length) throw new Error('Escribe al menos una nota, por ejemplo: Do Re Mi Fa Sol2');
+  return phrases;
+}
+// Canción inventada: escala mayor, forma A A' B A', frases de dos compases con final largo.
+const MAJ = [0, 2, 4, 5, 7, 9, 11];
+const degSemi = d => 12 * Math.floor(d / 7) + MAJ[mod(d, 7)];
+function genSong() {
+  const LO = 0, HI = 7, clamp = d => Math.max(LO, Math.min(HI, d));
+  const chordTone = (d, root) => { let best = null;
+    for (let c = LO; c <= HI; c++) if ([0, 2, 4].includes(mod(c - root, 7)) && (best === null || Math.abs(c - d) < Math.abs(best - d))) best = c;
+    return best; };
+  const step = () => pick([-1, -1, -1, 1, 1, 1, -2, 2, 0]);
+  const bar = (start, root, rhythm) => { let d = chordTone(start, root);
+    return rhythm.map((r, i) => { if (i) { d = clamp(d + step()); if (i === 2 && rhythm.length === 4) d = chordTone(d, root); } return { deg: d, d: r }; }); };
+  const ending = (prev, root, rhythm, finals) => {
+    let d = chordTone(clamp(prev + pick([-1, 1])), root);
+    const fin = finals.reduce((a, b) => Math.abs(b - d) < Math.abs(a - d) ? b : a), n = rhythm.length;
+    return rhythm.map((r, i) => {
+      if (i === n - 1) d = fin;
+      else if (i === n - 2 && i > 0) d = (d > fin && fin + 1 <= HI) || fin - 1 < LO ? fin + 1 : fin - 1;   // llega al final por paso
+      else if (i) d = clamp(d + step());
+      return { deg: d, d: r };
+    });
+  };
+  const R1 = [[1, 1, 1, 1], [1, 1, 1, 1], [2, 1, 1], [1, 1, 2], [1, 2, 1]], R2 = [[1, 1, 2], [1, 1, 2], [2, 2], [1, 3]];
+  const rA = pick(R1), rB = pick(R1), e1 = pick(R2), e2 = pick(R2);
+  const a1 = bar(pick([0, 2, 4]), 0, rA), la = a1[a1.length - 1].deg;
+  const b1 = bar(pick([3, 5, 7]), 3, rB), lb = b1[b1.length - 1].deg;
+  const A = a1.concat(ending(la, 4, e1, [1, 4])), A2 = a1.concat(ending(la, 4, e2, [0, 7]));
+  const B = b1.concat(ending(lb, 4, e1, [1, 4]));
+  return [A, A2, B, A2].map(ph => ph.map(x => ({ n: degSemi(x.deg), d: x.d, flat: false })));
+}
+function getSong() {
+  const id = $('song').value;
+  if (id === 'gen') return genSong();
+  return parseSong(id === 'custom' ? $('custom').value : SONGS[id].txt);
+}
+function buildSong() {
+  let phrases; try { phrases = getSong(); } catch (e) { phrases = genSong(); }
+  const all = phrases.flat().filter(x => !x.rest).map(x => x.n);
+  const mn = Math.min(...all), mx = Math.max(...all), shift = Math.round(comf + 1 - (mn + mx) / 2);   // al rango de tu voz
+  G.lo = mn + shift - 2; G.hi = mx + shift + 2;
+  const beat = 0.55 / cfg.speed, gapU = 0.26 / cfg.speed;
+  let t = 1.4;
+  phrases.forEach((ph, pi) => {
+    let first = true;
+    for (const x of ph) {
+      const durU = x.d * beat;
+      if (!x.rest) {
+        const hold = Math.max(0.14, durU - gapU);
+        G.walls.push({ s: t + hold / 2, hold, target: x.n + shift, jump: 0, flat: x.flat, phrase: pi, phraseStart: first,
+                       entered: false, bounced: 0, done: false, live: null, flash: 0 });
+        first = false;
+      }
+      t += durU;
+    }
+    t += Math.max(1.0, 2 * beat);
+  });
+}
+// toca la frase completa, a tempo, antes de que la cantes
+function startPreview(w, now) {
+  w.previewed = true;
+  if (!cfg.ref) return;
+  const f0 = w.s - w.hold / 2;
+  for (const x of G.walls) if (x.phrase === w.phrase) {
+    const off = x.s - x.hold / 2 - f0, dur = Math.max(0.25, Math.min(1.1, x.hold + 0.12));
+    playTone(toneMidi(x), off, dur); x.pvAt = now + off; x.pvDur = dur;
+  }
+  G.lastReplay = muteUntil;
+}
+
 const toneMidi = w => WRAP() ? comf + mod(w.target - comf + 6, 12) - 6 : w.target;
 
 function devSemis(m, w) {
@@ -455,7 +586,8 @@ function frame() {
 }
 
 function update(dt, now) {
-  const L = layout(), rU = L.r / L.sp;
+  const L = layout(), song = cfg.mode === 'song', rU = song ? 0 : L.r / L.sp;
+  if (AUTO) { const a = G.walls.find(w => !w.done); if (a && !muted(now)) { voiced = true; curMidi = toneMidi(a); } }
   // ball follows voice
   const singing = voiced && curMidi != null;
   if (singing) {
@@ -472,10 +604,11 @@ function update(dt, now) {
 
   // spawn ahead
   let lastW = G.walls[G.walls.length - 1];
-  while (lastW.s - G.scroll < G.travel + G.gapT) { spawnNext(lastW); lastW = G.walls[G.walls.length - 1]; }
+  while (!song && lastW.s - G.scroll < G.travel + G.gapT) { spawnNext(lastW); lastW = G.walls[G.walls.length - 1]; }
 
   // how fast should the world move?
   const w = G.walls.find(w => !w.done);
+  if (song && w && w.phraseStart && !w.previewed && w.s - w.hold / 2 - G.scroll <= 0.8) startPreview(w, now);
   const onNote = w && singing && G.ballMidi != null && Math.abs(devSemis(G.ballMidi, w)) * 100 <= cfg.tol;
   let target = 1;
   if (w) {
@@ -491,8 +624,9 @@ function update(dt, now) {
     const front = w.s - w.hold / 2, back = w.s + w.hold / 2;
     w.live = w.entered ? onNote : null;
     if (!w.entered && G.scroll + rU >= front) {
-      if (onNote) w.entered = true;
-      else if (G.v > 0) bounce(w, now, L, singing, front - rU);
+      if (onNote) { w.entered = true; w.waitT = 0; }
+      else if (song && (w.waitT = (w.waitT || 0) + dt) < 0.35) { G.scroll = front - rU; G.v = 0; }   // un respiro para llegar a la nota
+      else if (G.v > 0 || song) { w.waitT = 0; bounce(w, now, L, singing, front - rU); }
       else G.scroll = front - rU;
     } else if (w.entered) {
       if (G.scroll - rU > back) pass(w, now, L);
@@ -512,6 +646,7 @@ function update(dt, now) {
   G.floats = G.floats.filter(f => now - f.t < 1.1);
   G.parts = G.parts.filter(p => (p.life -= dt) > 0);
   G.parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; });
+  if (song && !w) { G.endAt = G.endAt || now + 1.2; if (now > G.endAt) showOver(true); }
 }
 
 function bounce(w, now, L, singing, stopAt) {
@@ -519,7 +654,7 @@ function bounce(w, now, L, singing, stopAt) {
   let msg = '¡Canta!';
   if (singing && G.ballMidi != null) {
     const d = devSemis(G.ballMidi, w);
-    if (cfg.mode === 'hard' && Math.abs(Math.abs(d) - 12) < 1) msg = d > 0 ? 'Una octava más abajo ↓' : 'Una octava más arriba ↑';
+    if (!WRAP() && Math.abs(Math.abs(d) - 12) < 1) msg = d > 0 ? 'Una octava más abajo ↓' : 'Una octava más arriba ↑';
     else if (d > 0) msg = d < 1.5 ? 'Un poquito más bajo ↓' : 'Más bajo ↓';
     else msg = d > -1.5 ? 'Un poquito más alto ↑' : 'Más alto ↑';
   }
@@ -538,7 +673,7 @@ function pass(w, now, L) {
   G.floats.push({ text: (w.bounced ? '¡Lo lograste! ' : '¡A la primera! ') + '+' + pts, color: '#5be39b', y: by, t: now });
   for (let i = 0; i < 18; i++) G.parts.push({ x: L.ballX, y: by, vx: (Math.random() - .3) * 260, vy: (Math.random() - .7) * 260, life: .8, c: colorOf(WRAP() ? w.target : pcOf(w.target)) });
   const next = G.walls.find(x => !x.done);
-  if (next) G.pendingTone = { at: now + 0.05, w: next };
+  if (next && cfg.mode !== 'song') G.pendingTone = { at: now + 0.05, w: next };
   updHud();
 }
 
@@ -569,7 +704,7 @@ function draw(now) {
   ctx.font = '600 12px system-ui'; ctx.textBaseline = 'middle';
   for (let i = 0; i < L.rows; i++) {
     const m = L.lo + i, y = L.baseY - (i + 0.5) * L.rowH, pc = WRAP() ? m : pcOf(m);
-    const home = cfg.mode === 'hard' && m === comf;
+    const home = !WRAP() && m === comf;
     if (cfg.mode === 'easy' && isBlack(pc)) continue;
     ctx.fillStyle = home ? '#ffffff10' : (i % 2 ? '#ffffff05' : '#ffffff00');
     ctx.fillRect(0, y - L.rowH / 2, W, L.rowH);
@@ -587,6 +722,7 @@ function draw(now) {
     if (w.done) { body = '#5be39b22'; edge = '#5be39b'; }
     else if (w.live === true) { body = '#5be39b33'; edge = '#5be39b'; }
     else if (w.live === false || now - w.flash < 0.3) { body = '#ff6b7a33'; edge = '#ff6b7a'; }
+    else if (w.pvAt && now >= w.pvAt && now < w.pvAt + w.pvDur) { body = colorOf(pc, 0.6); edge = '#fff'; }   // sonando en la muestra
     ctx.fillStyle = body;
     ctx.fillRect(x0, 0, wallW, gy - gh); ctx.fillRect(x0, gy + gh, wallW, H - gy - gh);
     ctx.fillStyle = edge;
@@ -631,7 +767,7 @@ function draw(now) {
     for (let yy of ys) {
       if (yy < -r || yy > H + r) continue;
       let arrow = 0;
-      if (cfg.mode === 'hard') { if (yy < TOP) { yy = TOP; arrow = -1; } if (yy > L.baseY) { yy = L.baseY; arrow = 1; } }
+      if (!WRAP()) { if (yy < TOP) { yy = TOP; arrow = -1; } if (yy > L.baseY) { yy = L.baseY; arrow = 1; } }
       ctx.beginPath(); ctx.arc(bx, yy, r, 0, Math.PI * 2);
       if (singing) { ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0; }
       else { ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 2; ctx.stroke(); }
@@ -694,18 +830,20 @@ function show(id) {
   $('hud').classList.toggle('hidden', id !== null);
 }
 function play() { syncSliders(); newGame(); phase = 'play'; show(null); }
-function showOver() {
+function showOver(finished) {
   phase = 'over';
+  $('over').querySelector('h2').textContent = finished ? '¡Canción completa!' : 'Resumen';
   const key = 'pelota-best-' + cfg.mode; let best = 0;
   try { best = +(localStorage.getItem(key) || 0); if (G.score > best) { localStorage.setItem(key, G.score); } } catch (e) {}
   $('finalScore').textContent = G.score;
   $('finalSub').textContent = G.passed + ' notas · ' + G.clean + ' a la primera · ' +
-    (G.score > best ? '¡nuevo récord!' : 'récord: ' + best) + ' · modo ' + { easy: 'fácil', medium: 'medio', hard: 'difícil' }[cfg.mode];
+    (G.score > best ? '¡nuevo récord!' : 'récord: ' + best) + ' · modo ' + { easy: 'fácil', medium: 'medio', hard: 'difícil', song: 'canción' }[cfg.mode];
   show('over');
 }
 
 async function begin(forceCalib) {
   $('err').classList.add('hidden');
+  if (cfg.mode === 'song') { try { getSong(); } catch (e) { $('err').textContent = e.message; $('err').classList.remove('hidden'); return; } }
   try { await initMic(); }
   catch (e) {
     $('err').textContent = (e && e.name === 'NotAllowedError') ? 'Necesito permiso para usar el micrófono. Revisa el ícono del candado en la barra de direcciones.' : (e.message || 'No pude abrir el micrófono.');
@@ -720,7 +858,7 @@ $('calibRedo').onclick = startCalib;
 $('calibSkip').onclick = () => { comf = 57; calibrated = true; $('recal').classList.remove('hidden'); play(); };
 $('again').onclick = play;
 $('toMenu').onclick = () => { phase = 'menu'; show('menu'); };
-$('quit').onclick = () => { if (G && G.passed > 0) showOver(); else { phase = 'menu'; show('menu'); } };
+$('quit').onclick = () => { if (G && G.passed > 0) showOver(false); else { phase = 'menu'; show('menu'); } };
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && actx) actx.resume(); });
 addEventListener('pointerdown', () => { if (actx && actx.state !== 'running') actx.resume(); });
