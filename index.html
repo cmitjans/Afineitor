@@ -52,9 +52,9 @@
     .modes{grid-template-columns:1fr}
     .card{padding:20px}
   }
-  .sel2,#custom{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
+  .sel2,#custom,#recTxt{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
   .sel2 option{color:#111}
-  #custom{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+  #custom,#recTxt{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -118,6 +118,7 @@
     </label>
     <div class="btns">
       <button class="main" id="start">Empezar</button>
+      <button class="sec" id="toRec">🎙 Grabar melodía</button>
       <button class="sec hidden" id="recal">Recalibrar voz</button>
     </div>
     <div class="err hidden" id="err"></div>
@@ -140,6 +141,25 @@
       <button class="sec hidden" id="calibRedo">Repetir</button>
       <button class="sec" id="calibSkip">Saltar (usar La3)</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="rec">
+  <div class="card">
+    <h2>Grabar melodía</h2>
+    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso. El juego convierte tu voz en notas, y después puedes corregirlas a mano.</p>
+    <label class="row">Pulso <input type="range" id="bpm" min="50" max="120" step="5" value="80"><span class="val" id="bpmV">80</span></label>
+    <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
+    <canvas id="recCv" style="width:100%;height:170px;background:#0e1020;border-radius:12px;display:block"></canvas>
+    <div class="small" id="recInfo" style="margin:8px 0;text-align:left">Aprieta Grabar y canta. El punto amarillo marca el pulso.</div>
+    <textarea id="recTxt" rows="3" spellcheck="false" placeholder="Aquí aparecen las notas"></textarea>
+    <div class="btns">
+      <button class="main" id="recBtn">● Grabar</button>
+      <button class="sec" id="recPlay">▶ Escuchar</button>
+      <button class="sec" id="recUse">Jugar esta melodía</button>
+      <button class="sec" id="recBack">Volver</button>
+    </div>
+    <div class="err hidden" id="recErr"></div>
   </div>
 </div>
 
@@ -280,16 +300,17 @@ function detectPitch(x0, sr0, gate) {
 // The gate adapts to the room: it follows the background noise level and sits a bit above it.
 // The "Sensibilidad" setting moves it up or down.
 const SENS = [2.2, 1.5, 1, 0.65, 0.4];
+let rawMidi = null;
 let hist = [], curMidi = null, voiced = false, silentF = 0, muteUntil = 0;
 let micLevel = 0, noiseFloor = 0.004, gateNow = 0.008, sinceVoice = 99;
 function readPitch(now) {
   if (!analyser) return;
-  if (!cfg.phones && muted(now)) { drawMeter(); return; }   // con parlante: no escucharse a sí mismo
+  if (!cfg.phones && muted(now)) { rawMidi = null; drawMeter(); return; }   // con parlante: no escucharse a sí mismo
   analyser.getFloatTimeDomainData(buf);
   gateNow = Math.max(0.0025, Math.min(0.012, noiseFloor * 2.5)) * SENS[cfg.sens - 1];
   if (voiced) gateNow *= 0.5;   // ya cantando, se exige menos volumen para seguir escuchando (histéresis)
   const r = detectPitch(buf, actx.sampleRate, gateNow);
-  micLevel = r.rms;
+  micLevel = r.rms; rawMidi = r.f > 0 ? hzToMidi(r.f) : null;
   if (r.f > 0) {
     hist.push(hzToMidi(r.f)); if (hist.length > 5) hist.shift();
     curMidi = median(hist); voiced = true; silentF = 0; sinceVoice = 0;
@@ -580,6 +601,7 @@ function frame() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - last); last = now;
   readPitch(now);
   if (phase === 'calib') calibStep(dt, now);
+  if (phase === 'rec') recStep(now);
   if (phase === 'play') update(dt, now);
   draw(now);
   requestAnimationFrame(frame);
@@ -825,8 +847,138 @@ function calibStep(dt) {
 }
 
 /* ---------- screens ---------- */
+/* ---------- grabar melodía con la voz ---------- */
+// REC-ANALYZE-START
+const ASCII = ['Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'];
+// fr: [{ t: segundos, m: nota MIDI (con decimales) o null }]  ->  { text, notes, base }
+function analyzeRec(fr, bpm) {
+  const n = fr.length;
+  // 1. suavizado (mediana de 5) para quitar saltos sueltos del detector
+  const m = fr.map((f, i) => {
+    if (f.m == null) return null;
+    const v = []; for (let j = i - 2; j <= i + 2; j++) if (fr[j] && fr[j].m != null) v.push(fr[j].m);
+    return v.length >= 3 ? median(v) : f.m;
+  });
+  // 2. rellena cortes muy breves dentro de una misma nota
+  for (let i = 1; i < n; i++) if (m[i] == null && m[i - 1] != null) {
+    let j = i; while (j < n && m[j] == null) j++;
+    if (j < n && fr[j].t - fr[i - 1].t < 0.09 && Math.abs(m[j] - m[i - 1]) < 1) for (let k = i; k < j; k++) m[k] = m[i - 1];
+    i = j;
+  }
+  // 3. corta en notas: por silencio, o cuando la altura se aleja más de 0,7 semitonos durante 4 cuadros seguidos
+  const segs = []; let cur = null, dev = 0;
+  const close = end => { if (cur) { cur.i1 = end; segs.push(cur); cur = null; } };
+  for (let i = 0; i < n; i++) {
+    if (m[i] == null) { close(i); dev = 0; continue; }
+    if (!cur) { cur = { i0: i, vals: [m[i]] }; dev = 0; continue; }
+    if (Math.abs(m[i] - median(cur.vals)) > 0.7) {
+      if (++dev >= 4) { const st = i - 3; cur.vals.length -= 3; close(st); cur = { i0: st, vals: m.slice(st, i + 1) }; dev = 0; }
+      else cur.vals.push(m[i]);
+    } else { dev = 0; cur.vals.push(m[i]); }
+  }
+  close(n);
+  // 4. altura de cada nota (sin el ataque ni la cola), y descarte de las muy cortas (deslizamientos)
+  let notes = segs.map(s => {
+    const a = Math.floor(s.vals.length * 0.25), b = Math.ceil(s.vals.length * 0.9);
+    return { t0: fr[s.i0].t, t1: fr[s.i1 - 1].t + 1 / 60, p: median(s.vals.slice(a, Math.max(a + 1, b))) };
+  }).filter(x => x.t1 - x.t0 >= 0.12);
+  if (!notes.length) return null;
+  // 5. si cantaste todo un poco alto o bajo, se corrige el desvío general antes de redondear al semitono
+  let sx = 0, sy = 0;
+  for (const x of notes) { const w = x.t1 - x.t0; sx += w * Math.cos(2 * Math.PI * x.p); sy += w * Math.sin(2 * Math.PI * x.p); }
+  const off = Math.atan2(sy, sx) / (2 * Math.PI);
+  notes.forEach(x => x.midi = Math.round(x.p - off));
+  // 6. une trozos pegados de la misma nota (vibrato)
+  notes = notes.reduce((acc, x) => { const l = acc[acc.length - 1];
+    if (l && l.midi === x.midi && x.t0 - l.t1 < 0.06) l.t1 = x.t1; else acc.push(x); return acc; }, []);
+  // 7. ritmo: ajusta inicios y duraciones a medios tiempos del pulso
+  const beat = 60 / bpm, q = x => Math.round(x / (beat / 2)) / 2, T0 = notes[0].t0;
+  let prev = -1;
+  for (const x of notes) { let on = q(x.t0 - T0); if (on <= prev) on = prev + 0.5; x.on = prev = on; x.len = Math.max(0.5, q(x.t1 - x.t0)); }
+  const base = 12 * Math.floor(Math.min(...notes.map(x => x.midi)) / 12), out = [];
+  notes.forEach((x, k) => {
+    let d = k < notes.length - 1 ? notes[k + 1].on - x.on : x.len, rest = 0;
+    if (d - x.len >= 1) { rest = d - x.len; d = x.len; }
+    d = Math.min(8, d);
+    const rel = x.midi - base;
+    out.push(ASCII[mod(rel, 12)] + "'".repeat(Math.floor(rel / 12)) + (d !== 1 ? d : ''));
+    if (rest >= 2) out.push('|'); else if (rest > 0) out.push('-' + (rest !== 1 ? rest : ''));
+  });
+  return { text: out.join(' '), notes, base };
+}
+// REC-ANALYZE-END
+const REC = { on: false, t0: 0, fr: [], res: null, nextBeat: 0, blink: 0, base: null };
+function clickSnd() {
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.value = 1200; g.gain.setValueAtTime(0.15, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.06);
+}
+function recStart(now) {
+  Object.assign(REC, { on: true, t0: now, fr: [], res: null, nextBeat: now });
+  $('recBtn').textContent = '■ Detener'; $('recInfo').textContent = 'Grabando… canta siguiendo el pulso (máximo 30 segundos).';
+  $('recErr').classList.add('hidden');
+}
+function recStop() {
+  REC.on = false; $('recBtn').textContent = '● Grabar';
+  REC.res = analyzeRec(REC.fr, +$('bpm').value);
+  if (!REC.res) { $('recInfo').textContent = 'No detecté ninguna nota. Revisa el micrófono (o la sensibilidad en el menú) y prueba de nuevo.'; return; }
+  REC.base = REC.res.base; $('recTxt').value = REC.res.text;
+  $('recInfo').textContent = 'Detecté ' + REC.res.notes.length + ' notas. Escúchala y corrige el texto si algo no calza.';
+}
+function recStep(now) {
+  if (REC.on) {
+    REC.fr.push({ t: now - REC.t0, m: rawMidi });
+    if (now >= REC.nextBeat) { REC.nextBeat += 60 / +$('bpm').value; REC.blink = now; if ($('click').checked) clickSnd(); }
+    if (now - REC.t0 > 30) recStop();
+  }
+  // dibujo: curva de la voz y, al terminar, las notas detectadas
+  const cv = $('recCv'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const fr = REC.fr, dur = Math.max(6, fr.length ? fr[fr.length - 1].t : 0);
+  let lo = 55, hi = 67; const vs = fr.filter(f => f.m != null).map(f => f.m);
+  if (vs.length) { lo = Math.floor(Math.min(...vs)) - 2; hi = Math.ceil(Math.max(...vs)) + 2; }
+  const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h;
+  c.fillStyle = '#ffffff0a'; for (let p = Math.ceil(lo); p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
+  if (REC.res) for (const x of REC.res.notes) {
+    c.fillStyle = colorOf(pcOf(x.midi), 0.75); c.fillRect(X(x.t0), Y(x.midi + 0.45), Math.max(3, X(x.t1) - X(x.t0)), 0.9 * h / (hi - lo));
+    c.fillStyle = '#fff'; c.font = '600 11px system-ui'; c.textBaseline = 'bottom'; c.fillText(NAMES[pcOf(x.midi)], X(x.t0), Y(x.midi + 0.5));
+  }
+  c.fillStyle = REC.res ? '#ffffff88' : '#fff'; for (const f of fr) if (f.m != null) c.fillRect(X(f.t), Y(f.m) - 1, 2, 2);
+  if (REC.on) { c.globalAlpha = Math.max(0.15, 1 - (now - REC.blink) * 4); c.fillStyle = '#ffcc4d'; c.beginPath(); c.arc(w - 16, 16, 8, 0, 7); c.fill(); c.globalAlpha = 1; }
+}
+function recErr(msg) { $('recErr').textContent = msg; $('recErr').classList.remove('hidden'); }
+function recPlay() {
+  $('recErr').classList.add('hidden');
+  let ph; try { ph = parseSong($('recTxt').value); } catch (e) { return recErr(e.message); }
+  const all = ph.flat().filter(x => !x.rest).map(x => x.n), beat = 60 / +$('bpm').value;
+  const shift = REC.base != null ? REC.base : Math.round(comf + 1 - (Math.min(...all) + Math.max(...all)) / 2);
+  let t = 0.05;
+  for (const p of ph) { for (const x of p) { if (!x.rest) playTone(x.n + shift, t, Math.max(0.2, Math.min(1.1, x.d * beat * 0.9))); t += x.d * beat; } t += beat; }
+}
+$('bpm').oninput = () => $('bpmV').textContent = $('bpm').value;
+$('recBtn').onclick = () => { if (REC.on) recStop(); else recStart(performance.now() / 1000); };
+$('recPlay').onclick = recPlay;
+$('recBack').onclick = () => { if (REC.on) recStop(); phase = 'menu'; show('menu'); };
+$('recUse').onclick = () => {
+  if (REC.on) recStop();
+  $('recErr').classList.add('hidden');
+  try { parseSong($('recTxt').value); } catch (e) { return recErr(e.message); }
+  $('custom').value = $('recTxt').value; $('song').value = 'custom'; syncSong();
+  try { localStorage.setItem('pelota-custom', $('custom').value); localStorage.setItem('pelota-song', 'custom'); } catch (e) {}
+  document.querySelector('[data-mode=song]').click();
+  phase = 'menu'; show('menu'); begin(false);
+};
+$('toRec').onclick = async () => {
+  $('err').classList.add('hidden');
+  try { await initMic(); } catch (e) { $('err').textContent = e.message || 'No pude abrir el micrófono.'; $('err').classList.remove('hidden'); return; }
+  $('click').checked = cfg.phones; if (!$('recTxt').value) $('recTxt').value = $('custom').value;
+  phase = 'rec'; show('rec');
+};
+
 function show(id) {
-  ['menu', 'calib', 'over'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+  ['menu', 'calib', 'over', 'rec'].forEach(x => $(x).classList.toggle('hidden', x !== id));
   $('hud').classList.toggle('hidden', id !== null);
 }
 function play() { syncSliders(); newGame(); phase = 'play'; show(null); }
