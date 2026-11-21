@@ -174,10 +174,13 @@
           <option value="1">1 ♯ (Fa♯)</option><option value="2">2 ♯ (Fa♯ Do♯)</option><option value="3">3 ♯ (Fa♯ Do♯ Sol♯)</option><option value="4">4 ♯ (+ Re♯)</option>
           <option value="-1">1 ♭ (Si♭)</option><option value="-2">2 ♭ (Si♭ Mi♭)</option><option value="-3">3 ♭ (Si♭ Mi♭ La♭)</option><option value="-4">4 ♭ (+ Re♭)</option>
         </select></label>
+        <label>Formato <select id="wrFmt" class="sel2">
+          <option value="auto">Detectar solo</option><option value="dur">Con duraciones (Sol1 Sib0.5)</option><option value="beats">Por tiempos (Re - | Mi♭ |)</option>
+        </select></label>
         <label>Tempo ♩= <input type="number" id="wrBpm" value="100" min="20" max="300" style="width:70px;background:#ffffff14;color:var(--ink);border:0;border-radius:8px;padding:6px 8px;font:inherit"></label>
       </div>
       <textarea id="wrTxt" rows="5" spellcheck="false" placeholder="Do1 Do1 Sol1 Sol1 | La1 La1 Sol2 | Fa1 Fa1 Mi1 Mi1 | Re1 Re1 Do2"></textarea>
-      <div class="hint" style="margin-top:6px">El número es la duración en negras: <b>1</b> negra, <b>0.5</b> corchea, <b>2</b> blanca, <b>4</b> redonda; un punto al final es puntillo (<b>Sol1.</b>). <b>-1</b> es un silencio de negra. <b>~</b> liga con la nota siguiente (<b>Re2~ Re1</b>). <b>'</b> sube una octava y <b>,</b> la baja (<b>Do'</b>). La armadura se aplica sola; para una alteración escribe <b>#</b>, <b>b</b> o <b>n</b> (natural): <b>Fa#</b>, <b>Sib</b>, <b>Sin</b>. <b>|</b> separa compases y no cuenta. Para repetir: <b>[ … ]x2</b>.</div>
+      <div class="hint" style="margin-top:6px"><b>Por tiempos</b> (puedes pegar todo de una, con títulos y "Compás 2:"): cada <b>|</b> separa un tiempo, <b>-</b> alarga la nota un tiempo, <b>•</b> es un tiempo de silencio, <b>Sib/La</b> son dos notas en un tiempo, <b>(Re)</b> es una nota ligada, <b>(Do)Re</b> un adorno, <b>(grave)</b> baja una octava. Las líneas "Casilla 1" / "Casilla 2" y "te devuelve al Compás N" arman la repetición sola.<br><b>Con duraciones</b>: el número es la duración en negras: <b>1</b> negra, <b>0.5</b> corchea, <b>2</b> blanca, <b>4</b> redonda; un punto al final es puntillo (<b>Sol1.</b>). <b>-1</b> es un silencio de negra. <b>~</b> liga con la nota siguiente (<b>Re2~ Re1</b>). <b>'</b> sube una octava y <b>,</b> la baja (<b>Do'</b>). La armadura se aplica sola; para una alteración escribe <b>#</b>, <b>b</b> o <b>n</b> (natural): <b>Fa#</b>, <b>Sib</b>, <b>Sin</b>. <b>|</b> separa compases y no cuenta. Para repetir: <b>[ … ]x2</b>.</div>
       <div class="btns" style="margin-top:8px"><button class="main" id="wrUse">Usar estas notas</button></div>
     </div>
     <div id="midBox" class="hidden">
@@ -1445,6 +1448,85 @@ function durOf(num, dot) {
   if (!(d > 0) || d > 16) throw new Error('Duración rara: ' + num);
   return dot ? d * 1.5 : d;
 }
+/* ---------- pegar notas "por tiempos": cada | separa un tiempo ---------- */
+// Entiende textos como:  Compás 2: `Re - | Mi♭ | Sol |`   con  •  = silencio,  -  = alarga,  Sib/La = dos notas en un tiempo,
+// (Re) = ligada,  (Do)Re = adorno,  (grave)/(agudo) = octava,  casillas 1 y 2 + "te devuelve al Compás N" = repetición.
+const NOTE_RE = /^\(?(do|re|mi|fa|sol|la|si|[a-g])(#|♯|b|♭|n|♮)?\)?([',]*)$/i;
+function looksLikeBeats(txt) { return /comp[aá]s|•|·|casilla|[a-zé♭#]\s*\/\s*(do|re|mi|fa|sol|la|si)/i.test(txt); }
+function parseBeats(txt, keySig, bpm) {
+  const acc = {};
+  if (keySig > 0) SHARP_ORDER.slice(0, keySig).forEach(pc => acc[pc] = 1);
+  if (keySig < 0) FLAT_ORDER.slice(0, -keySig).forEach(pc => acc[pc] = -1);
+  // 1. compases, con sus marcas de casilla y salto
+  const bars = []; let sect = 0, autoNum = 1, regUp = 0;
+  for (const raw of String(txt).split('\n')) {
+    const line = raw.replace(/[`*]/g, ' '), low = line.toLowerCase();
+    if (/casilla\s*1|1\s*[ªaº°.]?\s*vuelta|primera\s+vuelta/.test(low)) sect = 1;
+    else if (/casilla\s*2|2\s*[ªaº°.]?\s*vuelta|segunda\s+vuelta/.test(low)) sect = 2;
+    const ci = line.indexOf(':'), label = ci >= 0 ? line.slice(0, ci) : '', jumpM = low.match(/(?:devuelve|vuelve|regresa|repet\w*)\D*comp[aá]s\s*(\d+)/);
+    let body = ci >= 0 ? line.slice(ci + 1) : line;
+    body = body.replace(/\s*\((grave|bajo|baja|abajo)\)/gi, ',').replace(/\s*\((agud[oa]|alto|alta|arriba)\)/gi, "'")
+               .replace(/\([^()]*\s[^()]*\)/g, ' ');            // comentarios entre paréntesis
+    if (!body.includes('|')) {                                   // título o sección, sin notas
+      if (/parte|secci[oó]n|estrofa|coro|puente/.test(low) && !/vuelta|casilla/.test(low)) { sect = 0; if (/agud/.test(low)) regUp = 12; else if (/grave/.test(low)) regUp = -12; }
+      continue;
+    }
+    const nm = label.match(/comp[aá]s\s*(\d+)/i), num = nm ? +nm[1] : /inicio/i.test(label) ? 1 : autoNum;
+    autoNum = num + 1;
+    const cells = body.split('|').map(c => c.trim()).filter(Boolean);
+    if (cells.length) bars.push({ num, cells, end: sect, jump: jumpM ? +jumpM[1] : null, regUp });
+  }
+  if (!bars.length) throw new Error('No encontré compases. Cada tiempo se separa con | , por ejemplo:  Re - | Mi♭ | Sol |');
+  // 2. repeticiones: primera vuelta con la casilla 1, salto atrás, segunda vuelta con la casilla 2
+  const seq = [], used = new Set(); let i = 0, guard = 0, partStart = 0;
+  while (i < bars.length && guard++ < 5000) {
+    const b = bars[i];
+    if (b.end === 0 && i > 0 && bars[i - 1].end === 2) partStart = i;
+    if (b.end !== 1) { seq.push(b); i++; continue; }
+    let g = i; while (g > 0 && bars[g - 1].end === 1) g--;
+    let e = g; while (e + 1 < bars.length && bars[e + 1].end === 1) e++;
+    if (used.has(g)) { i = e + 1; continue; }                  // segunda vuelta: salta la casilla 1
+    seq.push(b);
+    if (i === e) {
+      used.add(g);
+      const jb = bars.slice(g, e + 1).find(x => x.jump != null);
+      let tgt = jb ? bars.findIndex((x, k) => k < g && x.num === jb.jump) : -1;
+      i = tgt >= 0 ? tgt : partStart;
+    } else i++;
+  }
+  // 3. notas: cada elemento separado por espacio dentro de un tiempo dura un tiempo; "/" lo divide
+  const beat = 60 / bpm, out = [], warn = [];
+  let t = 0, last = null, ref = 64, curUp = 0;
+  const counts = bars.map(b => b.cells.reduce((s, c) => s + c.split(/\s+/).filter(Boolean).length, 0));
+  const common = counts.slice().sort((a, b) => counts.filter(x => x === b).length - counts.filter(x => x === a).length)[0];
+  bars.forEach((b, k) => { if (counts[k] !== common) warn.push(b.num); });
+  for (const b of seq) {
+    if (b.regUp !== curUp) { ref += b.regUp - curUp; curUp = b.regUp; }
+    for (const cell of b.cells) for (const item of cell.split(/\s+/).filter(Boolean)) {
+      if (/^[-–—~_]+$/.test(item)) { if (last) last.d += beat; t += beat; continue; }       // alarga
+      if (/^([•·]+|x)$/i.test(item) || /^\([•·]\)$/.test(item)) { last = null; t += beat; continue; }   // silencio
+      const subs = item.split('/').filter(Boolean), sub = beat / subs.length;
+      for (let s of subs) {
+        if (/^[•·]$/.test(s)) { last = null; t += sub; continue; }
+        const tieOnly = /^\([^()]+\)$/.test(s);
+        if (!tieOnly) s = s.replace(/^\([^()]+\)/, '');            // (Do)Re: el adorno no cuenta
+        const m = s.match(NOTE_RE);
+        if (!m) throw new Error('No entiendo "' + s + '" en el compás ' + b.num + '.');
+        if (tieOnly && last) { last.d += sub; t += sub; continue; }  // (Re): ligada a la anterior
+        const nat = SOLF[m[1].toLowerCase()];
+        let pc = nat;
+        if (m[2] === '#' || m[2] === '♯') pc++; else if (m[2] === 'b' || m[2] === '♭') pc--; else if (!m[2]) pc += acc[nat] || 0;
+        let p = pc + 12 * Math.round((ref - pc) / 12);               // la octava más cercana a la nota anterior
+        for (const ch of m[3]) p += ch === "'" ? 12 : -12;
+        last = { t, d: sub, p }; out.push(last); ref = p; t += sub;
+      }
+    }
+  }
+  if (!out.length) throw new Error('No encontré notas.');
+  out.forEach(n => n.d = Math.max(0.08, n.d - Math.min(0.06, n.d * 0.15)));
+  return { notes: out, warn, common, bars: bars.length, played: seq.length };
+}
+
 function useParts(parts, name) {
   impStop(); $('recErr').classList.add('hidden');
   Object.assign(MID, { parts, name, al: null, man: 0 });
@@ -1461,14 +1543,21 @@ $('wrUse').onclick = () => {
   try {
     const bpm = +$('wrBpm').value;
     if (!(bpm >= 20 && bpm <= 300)) throw new Error('El tempo tiene que estar entre 20 y 300.');
-    const notes = parseWritten($('wrTxt').value, +$('wrKey').value, bpm);
+    const txt = $('wrTxt').value, byBeats = $('wrFmt').value === 'beats' || ($('wrFmt').value === 'auto' && looksLikeBeats(txt));
+    let notes, extra = '';
+    if (byBeats) {
+      const r = parseBeats(txt, +$('wrKey').value, bpm); notes = r.notes;
+      extra = ' Leí ' + r.bars + ' compases por tiempos' + (r.played !== r.bars ? ' (' + r.played + ' contando las repeticiones)' : '') + '.' +
+        (r.warn.length ? ' Ojo: ' + (r.warn.length === 1 ? 'el compás ' : 'los compases ') + r.warn.join(', ') + (r.warn.length === 1 ? ' no tiene' : ' no tienen') +
+          ' ' + r.common + ' tiempos como los demás; ' + (r.warn.length === 1 ? 'revísalo' : 'revísalos') + ', porque corre el ritmo de todo lo que sigue.' : '');
+    } else notes = parseWritten(txt, +$('wrKey').value, bpm);
     useParts([{ name: 'Notas escritas', notes }], 'notas escritas');
-    $('recInfo').textContent = 'Listo: ' + notes.length + ' notas, ' + Math.round(notes[notes.length - 1].t + notes[notes.length - 1].d) + ' s de melodía.' +
+    $('recInfo').textContent = 'Listo: ' + notes.length + ' notas, ' + Math.round(notes[notes.length - 1].t + notes[notes.length - 1].d) + ' s de melodía.' + extra +
       (IMP.det ? '' : ' Sube la grabación para sincronizarlas con ella, o canta encima de las notas solas.');
-    try { localStorage.setItem('pelota-wr', JSON.stringify({ t: $('wrTxt').value, k: $('wrKey').value, b: $('wrBpm').value })); } catch (e) {}
+    try { localStorage.setItem('pelota-wr', JSON.stringify({ t: $('wrTxt').value, k: $('wrKey').value, b: $('wrBpm').value, f: $('wrFmt').value })); } catch (e) {}
   } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
 };
-try { const w = JSON.parse(localStorage.getItem('pelota-wr') || 'null'); if (w) { $('wrTxt').value = w.t; $('wrKey').value = w.k; $('wrBpm').value = w.b; } } catch (e) {}
+try { const w = JSON.parse(localStorage.getItem('pelota-wr') || 'null'); if (w) { $('wrTxt').value = w.t; $('wrKey').value = w.k; $('wrBpm').value = w.b; if (w.f) $('wrFmt').value = w.f; } } catch (e) {}
 
 $('midBtn').onclick = () => $('midFile').click();
 $('midFile').onchange = () => { const f = $('midFile').files[0]; $('midFile').value = ''; if (f) loadMidiFile(f); };
