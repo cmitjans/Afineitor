@@ -154,9 +154,11 @@
 <div class="overlay hidden" id="rec">
   <div class="card">
     <h2>Grabar melodía</h2>
-    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso, o sube un audio. El juego convierte la voz en notas. Con un audio puedes además cantar encima: suena la grabación y el juego te muestra sus notas.</p>
+    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso, o sube un audio para cantar encima: suena la grabación y el juego te muestra sus notas. Si tienes la canción en MIDI, cárgalo también: sus notas son más exactas que las que detecto, y lo sincronizo solo con tu grabación.</p>
     <div class="btns" style="margin:0 0 12px">
       <button class="sec" id="impBtn">📁 Subir un audio</button>
+      <button class="sec" id="midBtn">🎼 Cargar notas de un MIDI</button>
+      <input type="file" id="midFile" accept=".mid,.midi,audio/midi,audio/x-midi" class="hidden">
       <input type="file" id="impFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" class="hidden">
     </div>
     <div id="impProg" class="hidden"><div class="bar"><i id="impBar"></i></div></div>
@@ -164,12 +166,20 @@
     <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
     <canvas id="recCv" style="width:100%;height:170px;background:#0e1020;border-radius:12px;display:block"></canvas>
     <div class="small" id="recInfo" style="margin:8px 0;text-align:left">Aprieta Grabar y canta. El punto amarillo marca el pulso.</div>
+    <div id="midBox" class="hidden">
+      <div id="midParts"></div>
+      <div class="small" id="midInfo" style="text-align:left;margin:6px 0"></div>
+      <label class="row" id="offRow">Ajuste fino de sincronía <input type="range" id="midOff" min="-3" max="3" step="0.05" value="0"><span class="val" id="midOffV">0,00 s</span></label>
+      <button class="sec" id="midClear" style="padding:8px 12px;font-size:13px">Quitar el MIDI</button>
+    </div>
     <div id="impBox" class="hidden">
+      <label class="row" id="guideRow">Tocar las notas con el instrumento, como guía <input type="checkbox" id="karaGuide" style="accent-color:var(--acc);width:18px;height:18px"></label>
       <label class="row">La octava no importa <input type="checkbox" id="karaOct" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
       <div class="btns" style="margin-top:6px">
         <button class="main" id="impUse">🎤 Cantar encima</button>
         <button class="sec" id="impOrig">▶ Escuchar la grabación</button>
-        <button class="sec" id="impSyn">▶ Escuchar las notas detectadas</button>
+        <button class="sec" id="impSyn">▶ Escuchar las notas</button>
+        <button class="sec" id="impBoth">▶ Grabación + notas</button>
       </div>
       <div class="hint">Usa audífonos: la grabación suena mientras cantas y las notas avanzan con ella. Si cantas cualquiera de las notas que están sonando, cuenta.</div>
       <hr style="border:0;border-top:1px solid #ffffff1a;margin:16px 0">
@@ -1000,7 +1010,7 @@ $('recUse').onclick = () => {
 /* ---------- cantar encima de un audio (karaoke) ---------- */
 // Suena la grabación real; las notas que detecta Basic Pitch avanzan sincronizadas con el audio.
 // No se separan voces: si cantas cualquiera de las notas que suenan en ese momento, cuenta.
-const IMP = { notes: null, name: '', buf: null, show: false, bus: null, playT0: 0, playing: null };
+const IMP = { notes: null, det: null, name: '', buf: null, show: false, bus: null, playT0: 0, playing: null };
 let bpReady = null, bpModel = null;
 function loadBP() {
   if (!bpReady) bpReady = new Promise((res, rej) => {
@@ -1027,19 +1037,15 @@ function cleanNotes(raw) {
 function impStop() {
   if (IMP.bus) { try { IMP.bus.disconnect(); } catch (e) {} IMP.bus = null; }
   IMP.playing = null;
-  $('impOrig').textContent = '▶ Escuchar la grabación'; $('impSyn').textContent = '▶ Escuchar las notas detectadas';
+  $('impOrig').textContent = '▶ Escuchar la grabación'; $('impSyn').textContent = '▶ Escuchar las notas'; $('impBoth').textContent = '▶ Grabación + notas';
 }
 function impPlay(what) {
   const again = IMP.playing === what; impStop(); if (again) return;
   ensureCtx(); actx.resume();
   IMP.bus = actx.createGain(); IMP.bus.connect(actx.destination); IMP.playing = what; IMP.playT0 = actx.currentTime + 0.05;
-  if (what === 'orig') {
-    const s = actx.createBufferSource(); s.buffer = IMP.buf; s.connect(IMP.bus); s.start(IMP.playT0);
-    $('impOrig').textContent = '■ Detener';
-  } else {
-    for (const n of IMP.notes) playTone(n.p, 0.05 + n.t, Math.max(0.2, Math.min(3, n.d)), { dest: IMP.bus, vol: 0.5, noMute: true });
-    $('impSyn').textContent = '■ Detener';
-  }
+  if (what !== 'syn') { const s = actx.createBufferSource(); s.buffer = IMP.buf; s.connect(IMP.bus); s.start(IMP.playT0); }
+  if (what !== 'orig') for (const n of IMP.notes) if (n.t >= 0) playTone(n.p, 0.05 + n.t, Math.max(0.2, Math.min(3, n.d)), { dest: IMP.bus, vol: what === 'both' ? 0.6 : 0.5, noMute: true });
+  $({ orig: 'impOrig', syn: 'impSyn', both: 'impBoth' }[what]).textContent = '■ Detener';
 }
 async function importAudio(file) {
   impStop(); $('recErr').classList.add('hidden');
@@ -1065,20 +1071,21 @@ async function importAudio(file) {
       .map(n => ({ t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }));
     const notes = cleanNotes(raw);
     if (!notes.length) throw new Error('No encontré notas claras en ese audio.');
-    Object.assign(IMP, { notes, buf: dec, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), show: true });
+    Object.assign(IMP, { det: notes, buf: dec, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), show: true });
     const ps = notes.map(n => n.p);
-    $('recInfo').textContent = 'Encontré ' + notes.length + ' notas, entre ' + nameOf(Math.min(...ps)) + ' y ' + nameOf(Math.max(...ps)) +
-      '. Puedes escuchar la grabación o las notas detectadas para comparar, y después cantar encima.';
-    $('impBox').classList.remove('hidden');
+    $('recInfo').textContent = 'Encontré ' + notes.length + ' notas en la grabación, entre ' + nameOf(Math.min(...ps)) + ' y ' + nameOf(Math.max(...ps)) + '.' +
+      (MID.parts ? '' : ' Si tienes la canción en MIDI, cárgala para usar sus notas en vez de las detectadas.');
+    doAlign(); refreshNotes();
   } catch (e) {
     $('recInfo').textContent = ''; $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden');
   } finally { $('impProg').classList.add('hidden'); }
 }
 function impDraw(c, w, h) {
-  const ns = IMP.notes, dur = IMP.buf.duration;
+  const ns = IMP.notes, dur = impDur();
   const lo = Math.min(...ns.map(n => n.p)) - 1, hi = Math.max(...ns.map(n => n.p)) + 2;
   const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h, rh = Math.max(2, 0.8 * h / (hi - lo));
   c.fillStyle = '#ffffff0a'; for (let p = lo; p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
+  if (MID.parts && IMP.det) { c.fillStyle = '#ffffff30'; for (const n of IMP.det) if (n.p >= lo && n.p < hi) c.fillRect(X(n.t), Y(n.p + 0.4), Math.max(2, X(n.d) - 1), rh); }   // detectadas, en gris, para comparar
   for (const n of ns) { c.fillStyle = colorOf(pcOf(n.p), 0.85); c.fillRect(X(n.t), Y(n.p + 0.4), Math.max(2, X(n.d) - 1), rh); }
   if (IMP.playing) { const x = X(actx.currentTime - IMP.playT0); if (x > 0 && x < w) { c.fillStyle = '#fff'; c.fillRect(x, 0, 2, h); } }
 }
@@ -1095,13 +1102,18 @@ async function karaStart() {
   K.oct = $('karaOct').checked;
   for (const n of IMP.notes) { n.tot = 0; n.hit = 0; n.ok = null; }
   Object.assign(K, { on: true, ball: null, trail: [], noteT: 0, onT: 0, streak: 0, best: 0, hits: 0 });
-  K.src = actx.createBufferSource(); K.src.buffer = IMP.buf; K.src.connect(actx.destination);
   K.start = actx.currentTime + 2;                 // 2 s para prepararse
-  K.src.start(K.start);
+  K.bus = actx.createGain(); K.bus.connect(actx.destination); K.dur = impDur();
+  if (IMP.buf) { K.src = actx.createBufferSource(); K.src.buffer = IMP.buf; K.src.connect(K.bus); K.src.start(K.start); }
+  // lo que se toca con el instrumento: sin grabación, todo el MIDI; con grabación, las notas solo si se pidió guía
+  K.sched = (!IMP.buf && MID.parts ? MID.parts.flatMap((pt, k) => pt.notes.map(n => ({ ...midMap(n), vol: MID.sel.has(k) ? 0.5 : 0.3 })))
+            : $('karaGuide').checked ? IMP.notes.map(n => ({ ...n, vol: 0.45 })) : []).filter(n => n.t >= 0).sort((a, b) => a.t - b.t);
+  K.schedI = 0;
   lastWasKara = true; setHud(HUD_KARA); phase = 'kara'; show(null);
 }
 function karaEnd(finished) {
   K.on = false; if (K.src) { try { K.src.stop(); } catch (e) {} K.src = null; }
+  if (K.bus) { try { K.bus.disconnect(); } catch (e) {} K.bus = null; }
   phase = 'over';
   const pct = K.noteT ? Math.round(100 * K.onT / K.noteT) : 0, total = IMP.notes.length;
   $('over').querySelector('h2').textContent = finished ? '¡Terminaste!' : 'Resumen';
@@ -1113,7 +1125,11 @@ function karaEnd(finished) {
 function karaStep(dt, now) {
   // tiempo de la canción que estás escuchando (descuenta el retraso de salida de audio)
   const t = actx.currentTime - K.start - (actx.outputLatency || 0) - (actx.baseLatency || 0);
-  const dur = IMP.buf.duration;
+  const dur = K.dur;
+  while (K.schedI < K.sched.length && K.sched[K.schedI].t < t + 1) {
+    const n = K.sched[K.schedI++], when = K.start + n.t - actx.currentTime;
+    if (when > -0.05) playTone(n.p, Math.max(0, when), Math.max(0.2, Math.min(4, n.d)), { dest: K.bus, vol: n.vol, noMute: true });
+  }
   if (t > dur + 0.3) return karaEnd(true);
   if (AUTO) { const a = IMP.notes.find(n => n.t <= t - 0.05 && t - 0.05 < n.t + n.d); voiced = !!a; if (a) curMidi = a.p + 12; }   // prueba: canta una octava arriba
   const singing = voiced && curMidi != null;
@@ -1203,12 +1219,188 @@ function karaDraw(t, active, singing, hitNow) {
   if (t < 0) {
     ctx.font = '800 48px system-ui'; ctx.fillStyle = '#ffcc4d'; ctx.textAlign = 'center';
     ctx.fillText(Math.ceil(-t), W / 2, H / 2); ctx.font = '600 15px system-ui'; ctx.fillStyle = '#9aa0c3';
-    ctx.fillText('Ponte los audífonos: la grabación va a sonar y tú cantas encima', W / 2, H / 2 + 44); ctx.textAlign = 'left';
+    ctx.fillText('Ponte los audífonos y canta encima', W / 2, H / 2 + 44); ctx.textAlign = 'left';
   }
   // barra de progreso
   ctx.fillStyle = '#ffffff14'; ctx.fillRect(0, H - 4, W, 4);
-  ctx.fillStyle = '#ffcc4d'; ctx.fillRect(0, H - 4, W * Math.max(0, Math.min(1, t / IMP.buf.duration)), 4);
+  ctx.fillStyle = '#ffcc4d'; ctx.fillRect(0, H - 4, W * Math.max(0, Math.min(1, t / K.dur)), 4);
 }
+/* ---------- notas desde un archivo MIDI ---------- */
+// lee un .mid (formato 0 o 1) y devuelve partes [{ name, notes:[{t,d,p}] }] con los tiempos ya en segundos
+function parseMidi(buf) {
+  const b = new Uint8Array(buf); let i = 0;
+  const u32 = () => (b[i++] << 24 | b[i++] << 16 | b[i++] << 8 | b[i++]) >>> 0, u16 = () => b[i++] << 8 | b[i++];
+  const str = n => { let s = ''; for (let k = 0; k < n; k++) s += String.fromCharCode(b[i++]); return s; };
+  const vlq = () => { let v = 0, c; do { c = b[i++]; v = v * 128 + (c & 127); } while (c & 128 && i < b.length); return v; };
+  if (str(4) !== 'MThd') throw new Error('Ese archivo no es un MIDI.');
+  const hl = u32(), fmt = u16(), ntr = u16(), div = u16(); i = 8 + hl;
+  if (div & 0x8000) throw new Error('Este MIDI usa un formato de tiempo (SMPTE) que no sé leer.');
+  const tempos = [], raw = [];          // raw: { trk, ch, tick, on, p }
+  const names = {}, progs = {};
+  for (let tr = 0; tr < ntr && i < b.length; tr++) {
+    while (i < b.length && str(4) !== 'MTrk') { i -= 3; }   // salta bloques desconocidos
+    const len = u32(), end = i + len; let tick = 0, rs = 0;
+    while (i < end) {
+      tick += vlq(); let st = b[i];
+      if (st & 0x80) i++; else st = rs;
+      if (st === 0xFF) {
+        const type = b[i++], l = vlq(), d = i; i += l;
+        if (type === 0x51 && l === 3) tempos.push([tick, (b[d] << 16 | b[d + 1] << 8 | b[d + 2])]);
+        if ((type === 0x03 || type === 0x04) && !names[tr]) { let s = ''; for (let k = d; k < d + l; k++) s += String.fromCharCode(b[k]); names[tr] = s.trim(); }
+        if (type === 0x2F) { i = end; break; }
+      } else if (st === 0xF0 || st === 0xF7) { i += vlq(); }
+      else {
+        rs = st; const hi = st & 0xF0, ch = st & 15;
+        if (hi === 0xC0 || hi === 0xD0) { if (hi === 0xC0) progs[tr + ':' + ch] = b[i]; i += 1; continue; }
+        const d1 = b[i++], d2 = b[i++];
+        if (hi === 0x90 && d2 > 0) raw.push({ tr, ch, tick, on: true, p: d1 });
+        else if (hi === 0x80 || hi === 0x90) raw.push({ tr, ch, tick, on: false, p: d1 });
+      }
+    }
+    i = end;
+  }
+  // mapa de tempo -> segundos
+  tempos.sort((a, c) => a[0] - c[0]);
+  const seg = [[0, 0, 500000]];     // [tick, segundos, µs por negra]
+  for (const [tk, us] of tempos) { const l = seg[seg.length - 1]; seg.push([tk, l[1] + (tk - l[0]) * l[2] / div / 1e6, us]); }
+  const sec = tk => { let s = seg[0]; for (const x of seg) if (x[0] <= tk) s = x; else break; return s[1] + (tk - s[0]) * s[2] / div / 1e6; };
+  // empareja inicio y fin de cada nota, por pista y canal (el canal 10 es batería: se omite)
+  raw.sort((a, c) => a.tick - c.tick || (a.on ? 1 : 0) - (c.on ? 1 : 0));
+  const open = {}, parts = {};
+  for (const e of raw) {
+    if (e.ch === 9) continue;
+    const key = e.tr + ':' + e.ch, k2 = key + ':' + e.p;
+    if (e.on) (open[k2] = open[k2] || []).push(e.tick);
+    else if (open[k2] && open[k2].length) {
+      const t0 = open[k2].shift(), a = sec(t0), z = sec(e.tick);
+      if (z - a > 0.03) (parts[key] = parts[key] || []).push({ t: a, d: z - a, p: e.p });
+    }
+  }
+  const keys = Object.keys(parts), multiCh = new Set(keys.map(k => k.split(':')[0])).size < keys.length;
+  const out = keys.map(k => {
+    const [tr, ch] = k.split(':'), notes = parts[k].sort((a, c) => a.t - c.t);
+    let name = names[tr] || '';
+    if (!name || multiCh) name = (name ? name + ' · ' : '') + 'canal ' + (+ch + 1);
+    return { name: name.slice(0, 40), notes };
+  }).filter(x => x.notes.length >= 4);
+  if (!out.length) throw new Error('No encontré notas en ese MIDI.');
+  return out;
+}
+// elige la voz principal: por nombre si parece voz o melodía; si no, la más aguda que canta una nota a la vez
+function pickMain(parts) {
+  const stats = parts.map(pt => {
+    const ns = pt.notes, mean = ns.reduce((s, n) => s + n.p, 0) / ns.length;
+    let ov = 0; for (let k = 1; k < ns.length; k++) if (ns[k].t < ns[k - 1].t + ns[k - 1].d - 0.05) ov++;
+    return { mean, mono: 1 - ov / ns.length, n: ns.length };
+  });
+  const maxN = Math.max(...stats.map(s => s.n));
+  const ok = k => stats[k].n >= 0.15 * maxN;
+  const voc = /(voc|voice|voz|vox|melod|lead|canto|sing|solo|soprano|tenor|ten\b|choir|coro)/i, acc = /(piano|bass|bajo|drum|guit|pad|string|chord|acomp|accomp)/i;
+  let cand = parts.map((p, k) => k).filter(k => ok(k) && voc.test(parts[k].name) && !acc.test(parts[k].name));
+  if (!cand.length) cand = parts.map((p, k) => k).filter(k => ok(k) && stats[k].mono > 0.8);
+  if (!cand.length) cand = parts.map((p, k) => k);
+  return cand.reduce((a, k) => stats[k].mean > stats[a].mean ? k : a, cand[0]);
+}
+// sincroniza el MIDI con las notas detectadas en el audio: busca tonalidad, tempo y desfase
+function alignMidi(det, mid) {
+  const all = mid.flat(), pcW = arr => { const h = new Array(12).fill(0); for (const n of arr) h[mod(n.p, 12)] += n.d; const s = Math.hypot(...h) || 1; return h.map(x => x / s); };
+  const hd = pcW(det), hm = pcW(all);
+  let k = 0, bk = -1;
+  for (let s = -6; s < 6; s++) { let v = 0; for (let c = 0; c < 12; c++) v += hd[mod(c + s, 12)] * hm[c]; if (v > bk) { bk = v; k = s; } }
+  const dDur = Math.max(...det.map(n => n.t + n.d)), mDur = Math.max(...all.map(n => n.t + n.d));
+  const search = (fps, rs, oFrom, oTo) => {
+    const T = Math.ceil(dDur * fps) + 2, A = new Uint8Array(T * 12);
+    for (const n of det) { const pc = mod(n.p, 12); for (let f = Math.floor(n.t * fps); f < Math.ceil((n.t + n.d) * fps) && f < T; f++) A[f * 12 + pc] = 1; }
+    let best = { s: -1 };
+    for (const r of rs) {
+      const ev = [];
+      for (const n of all) { const pc = mod(n.p + k, 12); for (let f = Math.floor(n.t * r * fps); f < Math.ceil((n.t + n.d) * r * fps); f++) ev.push(f * 12 + pc); }
+      if (!ev.length) continue;
+      for (let o = Math.floor(oFrom * fps); o <= Math.ceil(oTo * fps); o++) {
+        let s = 0; const off = o * 12;
+        for (let q = 0; q < ev.length; q++) { const x = ev[q] + off; if (x >= 0 && x < A.length) s += A[x]; }
+        s /= ev.length;
+        if (s > best.s) best = { s, r, o: o / fps };
+      }
+    }
+    return best;
+  };
+  const rs = []; for (let r = 0.7; r <= 1.42; r += 0.01) rs.push(+r.toFixed(3));
+  let b1 = search(4, rs, -mDur * 1.4, dDur);
+  const rs2 = []; for (let r = b1.r - 0.015; r <= b1.r + 0.0151; r += 0.0025) rs2.push(+r.toFixed(4));
+  const b2 = search(20, rs2, b1.o - 1, b1.o + 1);
+  // octava: la que hace coincidir más notas con su altura exacta (no solo el nombre)
+  const fps = 20, on = new Set();
+  for (const n of det) for (let f = Math.floor(n.t * fps); f < Math.ceil((n.t + n.d) * fps); f++) on.add(f * 128 + n.p);
+  let oct = 0, bo = -1;
+  for (const c of [-36, -24, -12, 0, 12, 24, 36]) {
+    let v = 0;
+    for (const n of all) { const p = n.p + k + c; if (p < 0 || p > 127) continue;
+      for (let f = Math.floor((n.t * b2.r + b2.o) * fps); f < Math.ceil(((n.t + n.d) * b2.r + b2.o) * fps); f++) if (on.has(f * 128 + p)) v++; }
+    if (v > bo) { bo = v; oct = c; }
+  }
+  return { r: b2.r, o: b2.o, k: k + oct, conf: b2.s };
+}
+
+const MID = { parts: null, main: 0, sel: new Set(), al: null, man: 0, name: '' };
+const impDur = () => IMP.buf ? IMP.buf.duration : Math.max(...IMP.notes.map(n => n.t + n.d)) + 1;
+const midMap = n => { const a = (IMP.det && MID.al) || { r: 1, o: 0, k: 0 }; return { t: n.t * a.r + a.o + (IMP.det ? MID.man : 0), d: n.d * a.r, p: n.p + a.k }; };
+// qué notas usa el juego: las del MIDI (voces elegidas) si hay uno; si no, las detectadas en el audio
+function refreshNotes() {
+  if (MID.parts) IMP.notes = [...MID.sel].flatMap(k => MID.parts[k].notes.map(midMap)).filter(n => n.t + n.d > 0).sort((a, b) => a.t - b.t);
+  else IMP.notes = IMP.det;
+  const has = !!(IMP.notes && IMP.notes.length);
+  IMP.show = has || !!IMP.det;
+  $('impBox').classList.toggle('hidden', !has);
+  $('midBox').classList.toggle('hidden', !MID.parts);
+  $('impOrig').classList.toggle('hidden', !IMP.buf);
+  $('impBoth').classList.toggle('hidden', !(IMP.buf && MID.parts));
+  $('guideRow').classList.toggle('hidden', !IMP.buf);
+  $('offRow').classList.toggle('hidden', !(IMP.buf && MID.parts));
+  $('impSyn').textContent = '▶ Escuchar las notas';
+}
+function doAlign() {
+  if (!(MID.parts && IMP.det)) return;
+  MID.al = alignMidi(IMP.det, MID.parts.map(p => p.notes)); MID.man = 0; $('midOff').value = 0; $('midOffV').textContent = '0,00 s';
+  const a = MID.al, pct = Math.round(a.conf * 100);
+  $('midInfo').textContent = 'Sincronicé el MIDI con la grabación: tempo ×' + a.r.toFixed(3).replace('.', ',') + ', empieza en ' +
+    a.o.toFixed(1).replace('.', ',') + ' s, ' + (a.k >= 0 ? '+' : '') + a.k + ' semitonos. Coincidencia: ' + pct + '%.' +
+    (a.conf < 0.35 ? ' Es baja: puede que el MIDI sea otro arreglo. Escucha "Grabación + notas" y corrige con el ajuste fino.' : '');
+}
+function renderMid() {
+  $('midParts').innerHTML = MID.parts.map((pt, k) => {
+    const ps = pt.notes.map(n => n.p);
+    return `<label class="vrow"><input type="checkbox" value="${k}" ${MID.sel.has(k) ? 'checked' : ''}>
+      <span>${pt.name.replace(/[<&]/g, '')}${k === MID.main ? ' <b style="color:var(--acc)">★ principal</b>' : ''}
+      <small>${nameOf(Math.min(...ps))}–${nameOf(Math.max(...ps))} · ${pt.notes.length} notas</small></span></label>`;
+  }).join('');
+  $('midParts').querySelectorAll('input').forEach(c => c.onchange = () => {
+    if (c.checked) MID.sel.add(+c.value); else MID.sel.delete(+c.value);
+    if (!MID.sel.size) { MID.sel.add(+c.value); c.checked = true; }
+    refreshNotes();
+  });
+}
+async function loadMidiFile(file) {
+  impStop(); $('recErr').classList.add('hidden');
+  try {
+    const parts = parseMidi(await file.arrayBuffer());
+    Object.assign(MID, { parts, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), al: null, man: 0 });
+    MID.main = pickMain(parts); MID.sel = new Set([MID.main]);
+    IMP.show = true; REC.res = null; REC.fr = [];
+    renderMid();
+    if (IMP.det) doAlign();
+    else $('midInfo').textContent = 'Sin grabación: al cantar encima, sonará el MIDI con el instrumento elegido. Si subes la grabación, lo sincronizo con ella.';
+    refreshNotes();
+    $('recInfo').textContent = 'El MIDI tiene ' + parts.length + (parts.length === 1 ? ' parte' : ' partes') + '. Marqué como principal "' + parts[MID.main].name +
+      '"; puedes cambiarla o sumar otras.';
+  } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
+}
+$('midBtn').onclick = () => $('midFile').click();
+$('midFile').onchange = () => { const f = $('midFile').files[0]; $('midFile').value = ''; if (f) loadMidiFile(f); };
+$('midClear').onclick = () => { impStop(); MID.parts = null; MID.al = null; refreshNotes(); $('recInfo').textContent = IMP.det ? 'Volví a las notas detectadas en la grabación.' : ''; };
+$('midOff').oninput = () => { MID.man = +$('midOff').value; $('midOffV').textContent = MID.man.toFixed(2).replace('.', ',') + ' s'; refreshNotes(); };
+$('impBoth').onclick = () => impPlay('both');
+
 $('impBtn').onclick = () => $('impFile').click();
 $('impFile').onchange = () => { const f = $('impFile').files[0]; $('impFile').value = ''; if (f) { IMP.show = true; REC.res = null; REC.fr = []; importAudio(f); } };
 $('impOrig').onclick = () => impPlay('orig');
