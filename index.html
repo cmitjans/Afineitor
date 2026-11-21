@@ -52,9 +52,9 @@
     .modes{grid-template-columns:1fr}
     .card{padding:20px}
   }
-  .sel2,#custom,#recTxt{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
+  .sel2,#custom,#recTxt,#wrTxt{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
   .sel2 option{color:#111}
-  #custom,#recTxt{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+  #custom,#recTxt,#wrTxt{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
   #songRow.hidden{display:none!important}
   .vrow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:14px;cursor:pointer}
   .vrow i{width:14px;height:14px;border-radius:4px;flex:none}
@@ -158,6 +158,7 @@
     <div class="btns" style="margin:0 0 12px">
       <button class="sec" id="impBtn">📁 Subir un audio</button>
       <button class="sec" id="midBtn">🎼 Cargar notas de un MIDI</button>
+      <button class="sec" id="wrBtn">✍️ Escribir las notas</button>
       <input type="file" id="midFile" accept=".mid,.midi,audio/midi,audio/x-midi" class="hidden">
       <input type="file" id="impFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" class="hidden">
     </div>
@@ -166,11 +167,24 @@
     <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
     <canvas id="recCv" style="width:100%;height:170px;background:#0e1020;border-radius:12px;display:block"></canvas>
     <div class="small" id="recInfo" style="margin:8px 0;text-align:left">Aprieta Grabar y canta. El punto amarillo marca el pulso.</div>
+    <div id="wrBox" class="hidden" style="margin-bottom:14px">
+      <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px">
+        <label>Armadura <select id="wrKey" class="sel2">
+          <option value="0">Sin ♯ ni ♭</option>
+          <option value="1">1 ♯ (Fa♯)</option><option value="2">2 ♯ (Fa♯ Do♯)</option><option value="3">3 ♯ (Fa♯ Do♯ Sol♯)</option><option value="4">4 ♯ (+ Re♯)</option>
+          <option value="-1">1 ♭ (Si♭)</option><option value="-2">2 ♭ (Si♭ Mi♭)</option><option value="-3">3 ♭ (Si♭ Mi♭ La♭)</option><option value="-4">4 ♭ (+ Re♭)</option>
+        </select></label>
+        <label>Tempo ♩= <input type="number" id="wrBpm" value="100" min="20" max="300" style="width:70px;background:#ffffff14;color:var(--ink);border:0;border-radius:8px;padding:6px 8px;font:inherit"></label>
+      </div>
+      <textarea id="wrTxt" rows="5" spellcheck="false" placeholder="Do1 Do1 Sol1 Sol1 | La1 La1 Sol2 | Fa1 Fa1 Mi1 Mi1 | Re1 Re1 Do2"></textarea>
+      <div class="hint" style="margin-top:6px">El número es la duración en negras: <b>1</b> negra, <b>0.5</b> corchea, <b>2</b> blanca, <b>4</b> redonda; un punto al final es puntillo (<b>Sol1.</b>). <b>-1</b> es un silencio de negra. <b>~</b> liga con la nota siguiente (<b>Re2~ Re1</b>). <b>'</b> sube una octava y <b>,</b> la baja (<b>Do'</b>). La armadura se aplica sola; para una alteración escribe <b>#</b>, <b>b</b> o <b>n</b> (natural): <b>Fa#</b>, <b>Sib</b>, <b>Sin</b>. <b>|</b> separa compases y no cuenta. Para repetir: <b>[ … ]x2</b>.</div>
+      <div class="btns" style="margin-top:8px"><button class="main" id="wrUse">Usar estas notas</button></div>
+    </div>
     <div id="midBox" class="hidden">
       <div id="midParts"></div>
       <div class="small" id="midInfo" style="text-align:left;margin:6px 0"></div>
       <label class="row" id="offRow">Ajuste fino de sincronía <input type="range" id="midOff" min="-3" max="3" step="0.05" value="0"><span class="val" id="midOffV">0,00 s</span></label>
-      <button class="sec" id="midClear" style="padding:8px 12px;font-size:13px">Quitar el MIDI</button>
+      <button class="sec" id="midClear" style="padding:8px 12px;font-size:13px">Quitar estas notas</button>
     </div>
     <div id="impBox" class="hidden">
       <label class="row" id="guideRow">Tocar las notas con el instrumento, como guía <input type="checkbox" id="karaGuide" style="accent-color:var(--acc);width:18px;height:18px"></label>
@@ -1363,9 +1377,9 @@ function doAlign() {
   if (!(MID.parts && IMP.det)) return;
   MID.al = alignMidi(IMP.det, MID.parts.map(p => p.notes)); MID.man = 0; $('midOff').value = 0; $('midOffV').textContent = '0,00 s';
   const a = MID.al, pct = Math.round(a.conf * 100);
-  $('midInfo').textContent = 'Sincronicé el MIDI con la grabación: tempo ×' + a.r.toFixed(3).replace('.', ',') + ', empieza en ' +
+  $('midInfo').textContent = 'Sincronicé las notas con la grabación: tempo ×' + a.r.toFixed(3).replace('.', ',') + ', empieza en ' +
     a.o.toFixed(1).replace('.', ',') + ' s, ' + (a.k >= 0 ? '+' : '') + a.k + ' semitonos. Coincidencia: ' + pct + '%.' +
-    (a.conf < 0.35 ? ' Es baja: puede que el MIDI sea otro arreglo. Escucha "Grabación + notas" y corrige con el ajuste fino.' : '');
+    (a.conf < 0.35 ? ' Es baja: puede que las notas sean de otro arreglo o tengan otro ritmo. Escucha "Grabación + notas" y corrige con el ajuste fino.' : '');
 }
 function renderMid() {
   $('midParts').innerHTML = MID.parts.map((pt, k) => {
@@ -1384,17 +1398,78 @@ async function loadMidiFile(file) {
   impStop(); $('recErr').classList.add('hidden');
   try {
     const parts = parseMidi(await file.arrayBuffer());
-    Object.assign(MID, { parts, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), al: null, man: 0 });
-    MID.main = pickMain(parts); MID.sel = new Set([MID.main]);
-    IMP.show = true; REC.res = null; REC.fr = [];
-    renderMid();
-    if (IMP.det) doAlign();
-    else $('midInfo').textContent = 'Sin grabación: al cantar encima, sonará el MIDI con el instrumento elegido. Si subes la grabación, lo sincronizo con ella.';
-    refreshNotes();
+    useParts(parts, file.name.replace(/\.[^.]+$/, '').slice(0, 40));
     $('recInfo').textContent = 'El MIDI tiene ' + parts.length + (parts.length === 1 ? ' parte' : ' partes') + '. Marqué como principal "' + parts[MID.main].name +
       '"; puedes cambiarla o sumar otras.';
   } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
 }
+/* ---------- escribir las notas a mano (mirando una partitura) ---------- */
+// Formato: Sol1 Sib0.5 La2. Re'1 -1 | ...  · número = duración en negras (0.5 corchea, 2 blanca, "." = con puntillo)
+// "~" liga con la siguiente, "-" es silencio, "|" es la barra de compás (no cuenta), [ ... ]x2 repite
+const SHARP_ORDER = [5, 0, 7, 2, 9, 4, 11], FLAT_ORDER = [11, 4, 9, 2, 7, 0, 5];
+function parseWritten(txt, keySig, bpm) {
+  const acc = {};                                     // armadura: pc natural -> alteración
+  if (keySig > 0) SHARP_ORDER.slice(0, keySig).forEach(pc => acc[pc] = 1);
+  if (keySig < 0) FLAT_ORDER.slice(0, -keySig).forEach(pc => acc[pc] = -1);
+  let src = String(txt).replace(/\n/g, ' | ');
+  for (let k = 0; k < 5 && /\[[^\[\]]*\]\s*x\s*\d+/i.test(src); k++)
+    src = src.replace(/\[([^\[\]]*)\]\s*x\s*(\d+)/gi, (_, body, n) => Array(Math.min(8, +n)).fill(body).join(' | '));
+  if (/[\[\]]/.test(src)) throw new Error('Hay un corchete sin cerrar. Las repeticiones se escriben así: [ Do Re Mi ]x2');
+  const beat = 60 / bpm, out = [];
+  let t = 0, tie = false;
+  for (const tok of src.split(/\s+/)) {
+    if (!tok || tok === '|' || tok === '||') continue;
+    let m = tok.match(/^[-_]((?:\d+(?:[.,]\d+)?)|(?:\d+\/\d+))?(\.)?$/);
+    if (m) { t += durOf(m[1], m[2]) * beat; tie = false; continue; }
+    m = tok.match(/^(do|re|mi|fa|sol|la|si|[a-g])(#|♯|b|♭|n|♮)?([',]*)((?:\d+(?:[.,]\d+)?)|(?:\d+\/\d+))?(\.)?(~)?$/i);
+    if (!m) throw new Error('No entiendo "' + tok + '". Ejemplos válidos: Sol1  Sib0.5  Fa#2  Re\'1.  -1');
+    const nat = SOLF[m[1].toLowerCase()];
+    let p = 60 + nat;
+    if (m[2] === '#' || m[2] === '♯') p++;
+    else if (m[2] === 'b' || m[2] === '♭') p--;
+    else if (!m[2]) p += acc[nat] || 0;               // n / ♮ = natural: anula la armadura
+    for (const ch of m[3]) p += ch === "'" ? 12 : -12;
+    const d = durOf(m[4], m[5]) * beat, last = out[out.length - 1];
+    if (tie && last && last.p === p) last.d += d;     // ligadura: alarga la nota anterior
+    else out.push({ t, d, p });
+    t += d; tie = !!m[6];
+    if (out.length > 600) throw new Error('Son demasiadas notas (máximo 600).');
+  }
+  if (!out.length) throw new Error('Escribe al menos una nota.');
+  out.forEach(n => n.d = Math.max(0.08, n.d - Math.min(0.06, n.d * 0.15)));   // pequeño respiro entre notas
+  return out;
+}
+function durOf(num, dot) {
+  let d = 1;
+  if (num) d = num.includes('/') ? (+num.split('/')[0] / +num.split('/')[1]) : +num.replace(',', '.');
+  if (!(d > 0) || d > 16) throw new Error('Duración rara: ' + num);
+  return dot ? d * 1.5 : d;
+}
+function useParts(parts, name) {
+  impStop(); $('recErr').classList.add('hidden');
+  Object.assign(MID, { parts, name, al: null, man: 0 });
+  MID.main = pickMain(parts); MID.sel = new Set([MID.main]);
+  IMP.show = true; REC.res = null; REC.fr = [];
+  renderMid();
+  if (IMP.det) doAlign();
+  else $('midInfo').textContent = 'Sin grabación: al cantar encima, sonarán estas notas con el instrumento elegido. Si subes la grabación, las sincronizo con ella.';
+  refreshNotes();
+}
+$('wrBtn').onclick = () => { $('wrBox').classList.toggle('hidden'); };
+$('wrUse').onclick = () => {
+  $('recErr').classList.add('hidden');
+  try {
+    const bpm = +$('wrBpm').value;
+    if (!(bpm >= 20 && bpm <= 300)) throw new Error('El tempo tiene que estar entre 20 y 300.');
+    const notes = parseWritten($('wrTxt').value, +$('wrKey').value, bpm);
+    useParts([{ name: 'Notas escritas', notes }], 'notas escritas');
+    $('recInfo').textContent = 'Listo: ' + notes.length + ' notas, ' + Math.round(notes[notes.length - 1].t + notes[notes.length - 1].d) + ' s de melodía.' +
+      (IMP.det ? '' : ' Sube la grabación para sincronizarlas con ella, o canta encima de las notas solas.');
+    try { localStorage.setItem('pelota-wr', JSON.stringify({ t: $('wrTxt').value, k: $('wrKey').value, b: $('wrBpm').value })); } catch (e) {}
+  } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
+};
+try { const w = JSON.parse(localStorage.getItem('pelota-wr') || 'null'); if (w) { $('wrTxt').value = w.t; $('wrKey').value = w.k; $('wrBpm').value = w.b; } } catch (e) {}
+
 $('midBtn').onclick = () => $('midFile').click();
 $('midFile').onchange = () => { const f = $('midFile').files[0]; $('midFile').value = ''; if (f) loadMidiFile(f); };
 $('midClear').onclick = () => { impStop(); MID.parts = null; MID.al = null; refreshNotes(); $('recInfo').textContent = IMP.det ? 'Volví a las notas detectadas en la grabación.' : ''; };
