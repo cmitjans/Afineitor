@@ -55,6 +55,13 @@
   .sel2,#custom,#recTxt{background:#ffffff14;color:var(--ink);border:0;border-radius:10px;padding:8px 10px;font:inherit;max-width:260px}
   .sel2 option{color:#111}
   #custom,#recTxt{width:100%;max-width:none;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+  #songRow.hidden{display:none!important}
+  .vrow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:14px;cursor:pointer}
+  .vrow i{width:14px;height:14px;border-radius:4px;flex:none}
+  .vrow span{flex:1}
+  .vrow small{color:var(--mute)}
+  .vrow input{accent-color:var(--acc)}
+  .vrow button{padding:6px 12px}
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -82,7 +89,11 @@
       <button class="mode" data-mode="hard"><b>Difícil</b><span>Octava exacta con saltos de octava, y ritmo: notas cortas, largas y más seguidas.</span></button>
       <button class="mode" data-mode="song"><b>Canción</b><span>Melodías con frases y ritmo: escuchas la frase y la cantas. Octava exacta.</span></button>
     </div>
-    <div id="songRow" class="hidden">
+    <div id="songRow" class="hidden" style="display:flex;flex-direction:column">
+      <div id="impRow" class="hidden" style="order:2">
+        <label class="row">Voz <select id="impVoice" class="sel2"></select></label>
+        <label class="row">Otras voces de fondo (con audífonos) <input type="checkbox" id="accomp" style="accent-color:var(--acc);width:18px;height:18px"></label>
+      </div>
       <label class="row">Canción
         <select id="song" class="sel2">
           <option value="gen">Inventada (nueva cada vez)</option>
@@ -94,7 +105,7 @@
           <option value="custom">Mi propia melodía…</option>
         </select>
       </label>
-      <div id="customBox" class="hidden">
+      <div id="customBox" class="hidden" style="order:3">
         <textarea id="custom" rows="4" spellcheck="false" placeholder="Do Do Sol Sol La La Sol2 | Fa Fa Mi Mi Re Re Do2"></textarea>
         <div class="hint" style="margin-top:6px">Notas separadas por espacios (Do Re Mi… o C D E…). Un número es la duración en tiempos (Sol2). # y b para sostenido y bemol (Fa#, Sib). ' sube una octava y , la baja (Do'). - es un silencio. Usa | o una línea nueva para separar frases. El juego la lleva sola al rango de tu voz.</div>
       </div>
@@ -147,11 +158,26 @@
 <div class="overlay hidden" id="rec">
   <div class="card">
     <h2>Grabar melodía</h2>
-    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso. El juego convierte tu voz en notas, y después puedes corregirlas a mano.</p>
+    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso, o sube un audio. El juego convierte la voz en notas; si el audio tiene varias voces, las separa para que elijas cuál cantar.</p>
+    <div class="btns" style="margin:0 0 12px">
+      <button class="sec" id="impBtn">📁 Subir un audio</button>
+      <input type="file" id="impFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" class="hidden">
+    </div>
+    <div id="impProg" class="hidden"><div class="bar"><i id="impBar"></i></div></div>
     <label class="row">Pulso <input type="range" id="bpm" min="50" max="120" step="5" value="80"><span class="val" id="bpmV">80</span></label>
     <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
     <canvas id="recCv" style="width:100%;height:170px;background:#0e1020;border-radius:12px;display:block"></canvas>
     <div class="small" id="recInfo" style="margin:8px 0;text-align:left">Aprieta Grabar y canta. El punto amarillo marca el pulso.</div>
+    <div id="impBox" class="hidden">
+      <div id="impVoices"></div>
+      <div class="btns" style="margin-top:10px">
+        <button class="main" id="impUse">Jugar la voz elegida</button>
+        <button class="sec" id="impAll">▶ Todas las voces</button>
+        <button class="sec" id="impOrig">▶ Original</button>
+      </div>
+      <div class="hint">En el menú puedes activar "Otras voces de fondo" para que suenen las demás mientras cantas la tuya.</div>
+      <hr style="border:0;border-top:1px solid #ffffff1a;margin:16px 0">
+    </div>
     <textarea id="recTxt" rows="3" spellcheck="false" placeholder="Aquí aparecen las notas"></textarea>
     <div class="btns">
       <button class="main" id="recBtn">● Grabar</button>
@@ -222,7 +248,7 @@ function syncSliders() {
 try { const s = localStorage.getItem('pelota-inst'); if (s) { $('inst').value = s; syncSliders(); } } catch (e) {}
 $('inst').addEventListener('change', () => { try { localStorage.setItem('pelota-inst', cfg.inst); } catch (e) {} });
 try { if (localStorage.getItem('pelota-phones') === '1') { $('phones').checked = true; syncSliders(); } } catch (e) {}
-const syncSong = () => $('customBox').classList.toggle('hidden', $('song').value !== 'custom');
+const syncSong = () => { $('customBox').classList.toggle('hidden', $('song').value !== 'custom'); $('impRow').classList.toggle('hidden', $('song').value !== 'import'); };
 try { const a = localStorage.getItem('pelota-song'), b = localStorage.getItem('pelota-custom'); if (a) $('song').value = a; if (b) $('custom').value = b; } catch (e) {}
 syncSong();
 $('song').addEventListener('change', () => { syncSong(); try { localStorage.setItem('pelota-song', $('song').value); } catch (e) {} });
@@ -399,14 +425,15 @@ const INST = {
   },
   synth(f, t, out) { partial(out, f, 0.25, t, 0.03, 0, 'triangle'); }
 };
-function playTone(m, delay = 0, durIn) {
+function playTone(m, delay = 0, durIn, opt = {}) {
   if (!actx) return;
   const f = midiToHz(m), t = actx.currentTime + 0.01 + delay, dur = durIn || (cfg.mode === 'hard' || cfg.mode === 'song' ? 0.5 : 0.8);
   const out = actx.createGain();
-  out.gain.setValueAtTime(1, t); out.gain.setValueAtTime(1, t + dur - 0.1); out.gain.linearRampToValueAtTime(0, t + dur);
-  out.connect(actx.destination);
+  const vol = opt.vol == null ? 1 : opt.vol;
+  out.gain.setValueAtTime(vol, t); out.gain.setValueAtTime(vol, t + dur - 0.1); out.gain.linearRampToValueAtTime(0, t + dur);
+  out.connect(opt.dest || actx.destination);
   (INST[cfg.inst] || INST.piano)(f, t, out, dur);
-  muteUntil = Math.max(muteUntil, performance.now() / 1000 + delay + dur + 0.08);
+  if (!opt.noMute) muteUntil = Math.max(muteUntil, performance.now() / 1000 + delay + dur + 0.08);
 }
 addEventListener('keydown', e => {
   if (e.code !== 'Space' || phase !== 'play') return;
@@ -417,6 +444,7 @@ addEventListener('keydown', e => {
 /* ---------- game state ---------- */
 let phase = 'menu';
 const AUTO = /[?&]auto=1/.test(location.search);   // demo/prueba: la pelota canta sola
+if (AUTO) window.__dbg = () => G && { accI: G.accI, acc: G.acc ? G.acc.length : null, walls: G.walls.length, passed: G.passed };
 const HOLD = 0.55;              // tunnel length, in "travel seconds"
 let G = null;
 const range = () => WRAP() ? { lo: 0, hi: 11 } : cfg.mode === 'song' && G && G.lo != null ? { lo: G.lo, hi: G.hi } : { lo: comf - 9, hi: comf + 10 };
@@ -535,10 +563,12 @@ function genSong() {
 }
 function getSong() {
   const id = $('song').value;
+  if (id === 'import') { if (!IMP.voices) throw new Error('Primero sube un audio en "Grabar melodía".'); return null; }
   if (id === 'gen') return genSong();
   return parseSong(id === 'custom' ? $('custom').value : SONGS[id].txt);
 }
 function buildSong() {
+  if ($('song').value === 'import' && IMP.voices) return buildImport();
   let phrases; try { phrases = getSong(); } catch (e) { phrases = genSong(); }
   const all = phrases.flat().filter(x => !x.rest).map(x => x.n);
   const mn = Math.min(...all), mx = Math.max(...all), shift = Math.round(comf + 1 - (mn + mx) / 2);   // al rango de tu voz
@@ -566,7 +596,7 @@ function startPreview(w, now) {
   if (!cfg.ref) return;
   const f0 = w.s - w.hold / 2;
   for (const x of G.walls) if (x.phrase === w.phrase) {
-    const off = x.s - x.hold / 2 - f0, dur = Math.max(0.25, Math.min(1.1, x.hold + 0.12));
+    const off = x.s - x.hold / 2 - f0, dur = Math.max(0.25, Math.min(G.imported ? 2.5 : 1.1, x.hold + 0.12));
     playTone(toneMidi(x), off, dur); x.pvAt = now + off; x.pvDur = dur;
   }
   G.lastReplay = muteUntil;
@@ -630,6 +660,7 @@ function update(dt, now) {
 
   // how fast should the world move?
   const w = G.walls.find(w => !w.done);
+  if (song) accStep();
   if (song && w && w.phraseStart && !w.previewed && w.s - w.hold / 2 - G.scroll <= 0.8) startPreview(w, now);
   const onNote = w && singing && G.ballMidi != null && Math.abs(devSemis(G.ballMidi, w)) * 100 <= cfg.tol;
   let target = 1;
@@ -914,6 +945,7 @@ function clickSnd() {
   o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.06);
 }
 function recStart(now) {
+  impStop(); IMP.show = false; $('impBox').classList.add('hidden');
   Object.assign(REC, { on: true, t0: now, fr: [], res: null, nextBeat: now });
   $('recBtn').textContent = '■ Detener'; $('recInfo').textContent = 'Grabando… canta siguiendo el pulso (máximo 30 segundos).';
   $('recErr').classList.add('hidden');
@@ -936,6 +968,7 @@ function recStep(now) {
   if (!w) return;
   if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  if (IMP.show && IMP.voices && !REC.on) return impDraw(c, w, h);
   const fr = REC.fr, dur = Math.max(6, fr.length ? fr[fr.length - 1].t : 0);
   let lo = 55, hi = 67; const vs = fr.filter(f => f.m != null).map(f => f.m);
   if (vs.length) { lo = Math.floor(Math.min(...vs)) - 2; hi = Math.ceil(Math.max(...vs)) + 2; }
@@ -960,7 +993,7 @@ function recPlay() {
 $('bpm').oninput = () => $('bpmV').textContent = $('bpm').value;
 $('recBtn').onclick = () => { if (REC.on) recStop(); else recStart(performance.now() / 1000); };
 $('recPlay').onclick = recPlay;
-$('recBack').onclick = () => { if (REC.on) recStop(); phase = 'menu'; show('menu'); };
+$('recBack').onclick = () => { impStop(); if (REC.on) recStop(); phase = 'menu'; show('menu'); };
 $('recUse').onclick = () => {
   if (REC.on) recStop();
   $('recErr').classList.add('hidden');
@@ -970,10 +1003,217 @@ $('recUse').onclick = () => {
   document.querySelector('[data-mode=song]').click();
   phase = 'menu'; show('menu'); begin(false);
 };
+// notas [{t, d, p, a}] -> { voices: [[{t,d,p}]...] } ordenadas de aguda a grave
+function splitVoices(raw, maxVoices) {
+  // 1. limpieza: une pedazos de la misma nota y descarta lo muy corto o muy débil
+  let ns = raw.filter(n => n.a > 0.15).map(n => ({ ...n })).sort((a, b) => a.p - b.p || a.t - b.t);
+  const merged = [];
+  for (const n of ns) {
+    const l = merged[merged.length - 1];
+    if (l && l.p === n.p && n.t - (l.t + l.d) < 0.18) l.d = Math.max(l.d, n.t + n.d - l.t);
+    else merged.push(n);
+  }
+  ns = merged.filter(n => n.d >= 0.14);
+  // 2. quita armónicos: una nota 12 o 19 semitonos sobre otra que suena a la vez, más débil, se descarta
+  ns = ns.filter(n => !ns.some(m => m !== n && (n.p - m.p === 12 || n.p - m.p === 19) && m.a >= n.a * 0.9 &&
+                                     Math.min(m.t + m.d, n.t + n.d) - Math.max(m.t, n.t) > 0.7 * n.d));
+  ns.sort((a, b) => a.t - b.t || b.p - a.p);
+  // 3. cuántas voces: lo que suena a la vez la mayor parte del tiempo
+  const end = Math.max(...ns.map(n => n.t + n.d)), counts = [];
+  for (let x = 0; x < end; x += 0.05) { const c = ns.filter(n => n.t <= x && x < n.t + n.d - 0.03).length; if (c) counts.push(c); }
+  counts.sort((a, b) => a - b);
+  const K = Math.max(1, Math.min(maxVoices || 4, counts[Math.floor(counts.length * 0.9)] || 1));
+  // 4. reparte: cada nota va a una voz libre, cuidando que la voz se mueva poco y que las voces no se crucen
+  const V = Array.from({ length: K }, () => ({ notes: [], last: null, free: -1 }));
+  // altura inicial de cada voz: percentiles del rango
+  const ps = ns.map(n => n.p).sort((a, b) => a - b);
+  V.forEach((v, i) => v.last = ps[Math.floor((K - 0.5 - i) / K * (ps.length - 1))]);
+  for (const n of ns) {
+    // voces que suenan en el ataque de esta nota: las más agudas que ella ponen el límite superior y las más graves el inferior
+    let minI = 0, maxI = K - 1;
+    V.forEach((v, j) => {
+      if (v.free <= n.t + 0.06) return;
+      const q = v.notes[v.notes.length - 1].p;
+      if (q >= n.p) minI = Math.max(minI, j + 1); else maxI = Math.min(maxI, j - 1);
+    });
+    let best = -1, bc = Infinity;
+    for (let i = minI; i <= maxI; i++) {
+      const v = V[i]; if (v.free > n.t + 0.06) continue;
+      const c = Math.abs(n.p - v.last);   // cercanía con la última nota de esa voz
+      if (c < bc) { bc = c; best = i; }
+    }
+    if (best < 0) continue;                                   // no cabe sin cruzar: se descarta
+    const v = V[best]; v.notes.push({ t: n.t, d: n.d, p: n.p }); v.last = n.p; v.free = n.t + n.d;
+  }
+  const voices = V.map(v => v.notes).filter(v => v.length >= 3);
+  voices.sort((a, b) => b.reduce((s, n) => s + n.p, 0) / b.length - a.reduce((s, n) => s + n.p, 0) / a.length);
+  return voices;
+}
+
+/* ---------- importar un audio (varias voces) ---------- */
+const VCOL = ['#00e5ff', '#7dff5b', '#ffd84d', '#ff5bd6'];
+const IMP = { voices: null, name: '', sel: 0, buf: null, show: false, bus: null, playT0: 0, playing: null };
+let bpReady = null, bpModel = null;
+function loadBP() {
+  if (!bpReady) bpReady = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = 'vendor/basicpitch.js';
+    s.onload = res; s.onerror = () => { bpReady = null; rej(new Error('No pude cargar el analizador de notas. Revisa tu conexión.')); };
+    document.head.appendChild(s);
+  });
+  return bpReady;
+}
+const voiceName = (i, k) => k === 1 ? 'Melodía' : 'Voz ' + (i + 1) + ' · ' + (i === 0 ? 'aguda' : i === k - 1 ? 'grave' : 'media');
+const voiceRange = v => { const ps = v.map(n => n.p); return nameOf(Math.min(...ps)) + '–' + nameOf(Math.max(...ps)); };
+function impSave() {
+  try { localStorage.setItem('pelota-import', JSON.stringify({ name: IMP.name, voices: IMP.voices.map(v => v.map(n => [+n.t.toFixed(3), +n.d.toFixed(3), n.p])) })); } catch (e) {}
+}
+function impLoadSaved() {
+  try {
+    const j = JSON.parse(localStorage.getItem('pelota-import') || 'null'); if (!j) return;
+    IMP.name = j.name; IMP.voices = j.voices.map(v => v.map(([t, d, p]) => ({ t, d, p })));
+  } catch (e) {}
+}
+function impSyncMenu() {
+  let opt = document.querySelector('#song option[value=import]');
+  if (!IMP.voices) { if (opt) opt.remove(); return; }
+  if (!opt) { opt = document.createElement('option'); opt.value = 'import'; $('song').insertBefore(opt, document.querySelector('#song option[value=custom]')); }
+  opt.textContent = 'Audio importado: ' + IMP.name;
+  const k = IMP.voices.length;
+  $('impVoice').innerHTML = IMP.voices.map((v, i) => `<option value="${i}">${voiceName(i, k)} (${voiceRange(v)})</option>`).join('');
+  $('impVoice').value = Math.min(IMP.sel, k - 1);
+}
+function impRender() {
+  const k = IMP.voices.length;
+  $('impVoices').innerHTML = IMP.voices.map((v, i) => `
+    <label class="vrow"><input type="radio" name="vsel" value="${i}" ${i === IMP.sel ? 'checked' : ''}>
+      <i style="background:${VCOL[i]}"></i><span>${voiceName(i, k)} <small>${voiceRange(v)} · ${v.length} notas</small></span>
+      <button class="sec" data-pv="${i}">▶</button></label>`).join('');
+  $('impVoices').querySelectorAll('input').forEach(r => r.onchange = () => { IMP.sel = +r.value; impSyncMenu(); });
+  $('impVoices').querySelectorAll('[data-pv]').forEach(b => b.onclick = e => { e.preventDefault(); impPlay('v' + b.dataset.pv); });
+  $('impOrig').classList.toggle('hidden', !IMP.buf);
+  $('impBox').classList.remove('hidden');
+}
+function impStop() {
+  if (IMP.bus) { try { IMP.bus.disconnect(); } catch (e) {} IMP.bus = null; }
+  IMP.playing = null; muteUntil = 0;
+  document.querySelectorAll('[data-pv]').forEach(b => b.textContent = '▶');
+  $('impAll').textContent = '▶ Todas las voces'; $('impOrig').textContent = '▶ Original';
+}
+function impPlay(what) {
+  const again = IMP.playing === what; impStop(); if (again) return;
+  ensureCtx(); actx.resume();
+  IMP.bus = actx.createGain(); IMP.bus.connect(actx.destination); IMP.playing = what; IMP.playT0 = actx.currentTime + 0.05;
+  if (what === 'orig') {
+    const s = actx.createBufferSource(); s.buffer = IMP.buf; s.connect(IMP.bus); s.start(IMP.playT0);
+    $('impOrig').textContent = '■ Detener';
+  } else {
+    const list = what === 'all' ? IMP.voices.flat() : IMP.voices[+what.slice(1)];
+    for (const n of list) playTone(n.p, 0.05 + n.t, Math.max(0.2, Math.min(3, n.d)), { dest: IMP.bus, vol: what === 'all' ? 0.55 : 1 });
+    if (what === 'all') $('impAll').textContent = '■ Detener'; else document.querySelector(`[data-pv="${what.slice(1)}"]`).textContent = '■';
+  }
+}
+async function importAudio(file) {
+  impStop(); $('recErr').classList.add('hidden');
+  const prog = p => { $('impBar').style.width = (p * 100).toFixed(0) + '%'; };
+  $('impProg').classList.remove('hidden'); $('impBox').classList.add('hidden'); prog(0);
+  $('recInfo').textContent = 'Leyendo el audio…';
+  try {
+    ensureCtx();
+    let dec;
+    try { dec = await actx.decodeAudioData(await file.arrayBuffer()); }
+    catch (e) { throw new Error('No pude leer ese archivo. Prueba con mp3, wav o m4a.'); }
+    if (dec.duration > 240) throw new Error('El audio es muy largo: el máximo son 4 minutos.');
+    IMP.buf = dec;
+    const off = new OfflineAudioContext(1, Math.ceil(dec.duration * 22050), 22050);
+    const src = off.createBufferSource(); src.buffer = dec; src.connect(off.destination); src.start();
+    const mono = await off.startRendering();
+    $('recInfo').textContent = 'Cargando el analizador de notas…';
+    await loadBP();
+    if (!bpModel) bpModel = BP.tf.loadGraphModel('vendor/model/model.json');
+    $('recInfo').textContent = 'Buscando las notas de cada voz… (puede tardar un poco)';
+    const F = [], O = [], C = [];
+    await new BP.BasicPitch(bpModel).evaluateModel(mono, (f, o, c) => { F.push(...f); O.push(...o); C.push(...c); }, prog);
+    const raw = BP.noteFramesToTime(BP.addPitchBendsToNoteEvents(C, BP.outputToNotesPoly(F, O, 0.5, 0.3, 11)))
+      .map(n => ({ t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }));
+    const voices = raw.length ? splitVoices(raw, 4) : [];
+    if (!voices.length) throw new Error('No encontré notas claras en ese audio.');
+    Object.assign(IMP, { voices, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), sel: 0, show: true });
+    impSave(); impSyncMenu(); impRender();
+    $('recInfo').textContent = voices.length === 1 ? 'Encontré una sola voz.' :
+      'Encontré ' + voices.length + ' voces. Escucha cada una con ▶, elige la que quieres cantar y juégala.';
+  } catch (e) {
+    $('recInfo').textContent = ''; $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden');
+  } finally { $('impProg').classList.add('hidden'); }
+}
+function impDraw(c, w, h) {
+  const all = IMP.voices.flat(), dur = Math.max(...all.map(n => n.t + n.d));
+  const lo = Math.min(...all.map(n => n.p)) - 1, hi = Math.max(...all.map(n => n.p)) + 2;
+  const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h, rh = Math.max(2, 0.8 * h / (hi - lo));
+  c.fillStyle = '#ffffff0a'; for (let p = lo; p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
+  IMP.voices.forEach((v, i) => {
+    c.globalAlpha = i === IMP.sel ? 1 : 0.3; c.fillStyle = VCOL[i];
+    for (const n of v) c.fillRect(X(n.t), Y(n.p + 0.4), Math.max(2, X(n.d) - 1), rh);
+  });
+  c.globalAlpha = 1;
+  if (IMP.playing) { const x = X(actx.currentTime - IMP.playT0); if (x > 0 && x < w) { c.fillStyle = '#fff'; c.fillRect(x, 0, 2, h); } }
+}
+// nivel Canción con un audio importado: tiempos reales, frases separadas por pausas
+function buildImport() {
+  const vi = Math.min(+$('impVoice').value || 0, IMP.voices.length - 1), v = IMP.voices[vi], sp = cfg.speed;
+  const ps = v.map(n => n.p), mn = Math.min(...ps), mx = Math.max(...ps);
+  const shift = 12 * Math.round((comf + 1 - (mn + mx) / 2) / 12);       // solo por octavas: queda en la tonalidad original
+  G.lo = mn + shift - 2; G.hi = mx + shift + 2; G.imported = true;
+  const t0 = v[0].t, bounds = [];
+  let extra = 0, phrase = -1, prevEnd = null, count = 0, phStart = 0;
+  for (const n of v) {
+    const gap = prevEnd == null ? Infinity : n.t - prevEnd;
+    if (prevEnd == null || gap > 0.6 || count >= 8 || n.t - phStart > 7) {
+      if (prevEnd != null) { const add = Math.max(0, 1.0 - gap / sp); extra += add; bounds.push([n.t - 0.001, extra]); }
+      phrase++; count = 0; phStart = n.t;
+    }
+    count++; prevEnd = n.t + n.d;
+  }
+  const S = t => { let e = 0; for (const [tb, x] of bounds) if (t >= tb) e = x; return 1.4 + (t - t0) / sp + e; };
+  phrase = -1; prevEnd = null; count = 0;
+  for (const n of v) {
+    const gap = prevEnd == null ? Infinity : n.t - prevEnd, first = prevEnd == null || gap > 0.6 || count >= 8 || n.t - phStart > 7;
+    if (first) { phrase++; count = 0; phStart = n.t; }
+    const hold = Math.max(0.14, n.d / sp - 0.08), s0 = S(n.t);
+    G.walls.push({ s: s0 + hold / 2, hold, target: n.p + shift, jump: 0, flat: false, phrase, phraseStart: first,
+                   entered: false, bounced: 0, done: false, live: null, flash: 0 });
+    count++; prevEnd = n.t + n.d;
+  }
+  G.acc = $('accomp').checked ? IMP.voices.flatMap((o, i) => i === vi ? [] : o.map(n => ({ s: S(n.t), dur: n.d / sp, n: n.p + shift })))
+    .filter(a => a.s >= S(t0) - 0.01).sort((a, b) => a.s - b.s) : null;
+  G.accI = 0;
+}
+function accStep() {
+  if (!G.acc || G.v <= 0) return;
+  while (G.accI < G.acc.length && G.acc[G.accI].s <= G.scroll) {
+    const a = G.acc[G.accI++];
+    if (a.s > G.scroll - 0.3) playTone(a.n, 0, Math.max(0.2, Math.min(4, a.dur)), { vol: 0.35, noMute: true });
+  }
+}
+$('impBtn').onclick = () => $('impFile').click();
+$('impFile').onchange = () => { const f = $('impFile').files[0]; $('impFile').value = ''; if (f) { recShowImport(); importAudio(f); } };
+$('impAll').onclick = () => impPlay('all');
+$('impOrig').onclick = () => impPlay('orig');
+$('impUse').onclick = () => {
+  impStop();
+  $('song').value = 'import'; $('impVoice').value = IMP.sel; syncSong();
+  try { localStorage.setItem('pelota-song', 'import'); } catch (e) {}
+  document.querySelector('[data-mode=song]').click();
+  phase = 'menu'; show('menu'); begin(false);
+};
+function recShowImport() { IMP.show = true; REC.res = null; REC.fr = []; }
+impLoadSaved(); impSyncMenu();
+try { if (localStorage.getItem('pelota-song') === 'import' && IMP.voices) { $('song').value = 'import'; syncSong(); } } catch (e) {}
+
 $('toRec').onclick = async () => {
   $('err').classList.add('hidden');
   try { await initMic(); } catch (e) { $('err').textContent = e.message || 'No pude abrir el micrófono.'; $('err').classList.remove('hidden'); return; }
   $('click').checked = cfg.phones; if (!$('recTxt').value) $('recTxt').value = $('custom').value;
+  if (IMP.voices && IMP.show) impRender();
   phase = 'rec'; show('rec');
 };
 

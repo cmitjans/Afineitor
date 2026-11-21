@@ -1,0 +1,3 @@
+basicpitch.js: Basic Pitch de Spotify (https://github.com/spotify/basic-pitch-ts) empaquetado junto con TensorFlow.js.
+Ambos con licencia Apache 2.0. La carpeta model/ contiene el modelo de Basic Pitch.
+Se usa para transcribir audios con varias voces a notas, dentro del navegador.
