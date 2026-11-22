@@ -172,7 +172,7 @@
     </div></div>
 
     <div class="step"><div class="sn">2</div><div class="sb">
-      <b>Sus notas</b> <span class="small">(de la partitura; el ritmo lo saco de la grabación)</span>
+      <b>Sus notas</b> <span class="small">(de la partitura: sirven para elegir la melodía entre las voces de la grabación)</span>
       <div id="wrBox" style="margin-top:8px">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px;margin-bottom:8px">
           <label>Armadura <select id="wrKey" class="sel2">
@@ -199,7 +199,7 @@
 
     <div class="step"><div class="sn">3</div><div class="sb">
       <b>Revisa que calcen</b>
-      <div class="small" style="margin:4px 0 8px;text-align:left">En gris, lo que suena en la grabación; encima, tus notas: <span style="color:var(--ok)">verde</span> si calza, <span style="color:var(--bad)">rojo</span> si no. Haz clic en el dibujo para escuchar desde ahí.</div>
+      <div class="small" style="margin:4px 0 8px;text-align:left">En gris, todas las voces de la grabación; en <span style="color:var(--ok)">verde</span>, las notas de la melodía que encontré siguiendo tu partitura. Haz clic en el dibujo para escuchar desde ahí.</div>
       <div id="cvWrap" style="overflow-x:auto;border-radius:12px;background:#0e1020"><canvas id="recCv" style="width:100%;height:170px;display:block;cursor:pointer"></canvas></div>
       <div class="small" id="recInfo" style="margin:8px 0;text-align:left"></div>
       <div id="midBox" class="hidden">
@@ -498,7 +498,7 @@ addEventListener('keydown', e => {
 /* ---------- game state ---------- */
 let phase = 'menu';
 const AUTO = /[?&]auto=1/.test(location.search);   // demo/prueba: la pelota canta sola
-if (AUTO) window.__dbg = () => ({ phase, noteT: K.noteT, onT: K.onT, hits: K.hits, notes: IMP.notes && IMP.notes.map(n => [n.t, n.d, n.p, n.match]) });
+if (AUTO) window.__dbg = () => ({ phase, noteT: K.noteT, onT: K.onT, hits: K.hits, notes: IMP.notes && IMP.notes.map(n => [n.t, n.d, n.p, n.found]), det: IMP.det, score: MID.parts && MID.parts[0].notes });
 const HOLD = 0.55;              // tunnel length, in "travel seconds"
 let G = null;
 const range = () => WRAP() ? { lo: 0, hi: 11 } : cfg.mode === 'song' && G && G.lo != null ? { lo: G.lo, hi: G.hi } : { lo: comf - 9, hi: comf + 10 };
@@ -1083,7 +1083,7 @@ function cleanNotes(raw) {
   ns = merged.filter(n => n.d >= 0.12);
   ns = ns.filter(n => !ns.some(m => m !== n && [12, 19, 24].includes(n.p - m.p) && m.a >= n.a * 0.9 &&
                                      Math.min(m.t + m.d, n.t + n.d) - Math.max(m.t, n.t) > 0.7 * n.d));
-  return ns.sort((a, b) => a.t - b.t).map(n => ({ t: n.t, d: n.d, p: n.p }));
+  return ns.sort((a, b) => a.t - b.t).map(n => ({ t: n.t, d: n.d, p: n.p, a: n.a }));
 }
 function impStop() {
   if (IMP.bus) { try { IMP.bus.disconnect(); } catch (e) {} IMP.bus = null; }
@@ -1138,7 +1138,7 @@ function impDraw(c, w, h) {
   const lo = Math.min(...ns.map(n => n.p)) - 4, hi = Math.max(...ns.map(n => n.p)) + 4;
   const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h, rh = Math.max(3, 0.8 * h / (hi - lo));
   c.fillStyle = '#ffffff08'; for (let p = lo; p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
-  if (S && MID.parts) {                                   // la voz real de la grabación, en gris
+  if (S && MID.parts && IMP.det) {                         // la voz real de la grabación, en gris
     const cw = Math.max(1, w / dur / SFPS + 0.5);
     for (let j = 0; j < S.T; j++) for (let p = lo; p < hi; p++) {
       const v = S.sal[j * 88 + p - 21]; if (v < 0.18) continue;
@@ -1148,7 +1148,7 @@ function impDraw(c, w, h) {
   c.font = '600 10px system-ui'; c.textBaseline = 'bottom';
   for (const n of ns) {
     const x = X(n.t), bw = Math.max(2, X(n.d) - 1), y = Y(n.p + 0.4);
-    if (n.match != null) { const ok = n.match >= 0.3; c.strokeStyle = ok ? '#5be39b' : '#ff6b7a'; c.lineWidth = 2; c.fillStyle = ok ? '#5be39b40' : '#ff6b7a66'; c.fillRect(x, y, bw, rh); c.strokeRect(x, y, bw, rh); }
+    if (n.found != null) { const ok = n.found; c.strokeStyle = ok ? '#5be39b' : '#ffcc4d'; c.lineWidth = 2; c.fillStyle = ok ? '#5be39b55' : '#ffcc4d44'; c.fillRect(x, y, bw, rh); c.strokeRect(x, y, bw, rh); }
     else { c.fillStyle = colorOf(pcOf(n.p), 0.85); c.fillRect(x, y, bw, rh); }
     if (bw > 22 && MID.parts) { c.fillStyle = '#fff'; c.fillText(NAMES[pcOf(n.p)], x + 2, y - 1); }
   }
@@ -1524,17 +1524,95 @@ function noteMatch(n, S) {
   return c ? s / c : 0;
 }
 
+/* ---------- seguir la partitura dentro de lo que detecté en la grabación ---------- */
+// La partitura dice QUÉ notas forman la melodía (en orden); la grabación dice CUÁNDO y a qué altura suenan.
+// Recorre ambas a la vez y, de todas las voces detectadas, se queda con las que siguen la partitura.
+function followScore(score, det) {
+  const P = score.slice().sort((a, b) => a.t - b.t), D = det.slice().sort((a, b) => a.t - b.t), n = P.length, m = D.length;
+  if (!n || !m) return { notes: [], found: 0, est: 0, total: n };
+  const hist = arr => { const h = new Array(12).fill(0); for (const x of arr) h[mod(x.p, 12)] += Math.min(x.d, 2); const s = Math.hypot(...h) || 1; return h.map(v => v / s); };
+  const hd = hist(D), hp = hist(P), ks = [];
+  for (let k = -6; k < 6; k++) { let v = 0; for (let c = 0; c < 12; c++) v += hd[mod(c + k, 12)] * hp[c]; ks.push([v, k]); }
+  ks.sort((a, b) => b[0] - a[0]);
+  const W = 40, SKIP_P = 0.6, SKIP_D = 0.02;
+  const run = (k, R) => {
+    const best = new Float32Array(n * m).fill(-1e9), back = new Int32Array(n * m).fill(-1);
+    for (let i = 0; i < n; i++) {
+      const pc = mod(P[i].p + k, 12);
+      for (let j = 0; j < m; j++) {
+        if (mod(D[j].p, 12) !== pc) continue;
+        const gain = 1 + 0.25 * Math.min(1, D[j].d / 0.3) + 0.8 * (D[j].a || 0);   // prefiere la voz que suena más fuerte
+        let v = gain - 0.25 * i, bp = -1;                       // empezar aquí (saltando el comienzo de la partitura)
+        // la misma nota detectada puede cubrir varias notas iguales seguidas de la partitura (se cantaron ligadas)
+        if (i > 0 && mod(P[i - 1].p + k, 12) === pc) { const b = best[(i - 1) * m + j]; if (b > -1e8 && b + 0.7 > v) { v = b + 0.7; bp = (i - 1) * m + j; } }
+        for (let di = 1; di <= 3 && i - di >= 0; di++) {
+          const i2 = i - di, dtS = P[i].t - P[i2].t;
+          for (let j2 = j - 1; j2 >= 0 && j2 >= j - W; j2--) {
+            const b = best[i2 * m + j2]; if (b < -1e8) continue;
+            const dtD = D[j].t - D[j2].t; if (dtD < 0.06) continue; if (dtD > 8) break;
+            let c = b + gain - SKIP_P * (di - 1) - SKIP_D * (j - j2 - 1);
+            const jump = Math.abs(D[j].p - D[j2].p); if (jump > 7) c -= 0.3 * (jump - 7);   // una melodía casi nunca salta más de una quinta y algo
+            if (R) {                                                  // ritmo parecido al de la partitura (sin exigir el mismo tempo)
+              const exp = dtS * R; c -= Math.abs(Math.log((dtD + 0.1) / (exp + 0.1)));
+              if (dtD > 3 * exp + 1) c -= 1.5;                         // un hueco enorme: probablemente ya no es la melodía
+            }
+            if (c > v) { v = c; bp = i2 * m + j2; }
+          }
+        }
+        best[i * m + j] = v; back[i * m + j] = bp;
+      }
+    }
+    let bi = -1, bv = -1e9;
+    for (let x = 0; x < n * m; x++) { if (best[x] < -1e8) continue; const v = best[x] - 0.25 * (n - 1 - Math.floor(x / m)); if (v > bv) { bv = v; bi = x; } }
+    const pairs = []; for (let x = bi; x >= 0; x = back[x]) pairs.push([Math.floor(x / m), x % m]);
+    return { v: bv, pairs: pairs.reverse(), k };
+  };
+  let res = null;
+  for (const [, k] of ks.slice(0, 4)) { const r = run(k, 0); if (!res || r.v > res.v) res = r; }
+  // segunda pasada con el tempo típico que salió de la primera
+  const ratios = []; for (let q = 1; q < res.pairs.length; q++) { const [i1, j1] = res.pairs[q - 1], [i2, j2] = res.pairs[q]; const s = P[i2].t - P[i1].t; if (s > 0.05 && j1 !== j2) ratios.push((D[j2].t - D[j1].t) / s); }
+  if (ratios.length > 4) { ratios.sort((a, b) => a - b); const r2 = run(res.k, ratios[ratios.length >> 1]); if (r2.pairs.length >= res.pairs.length * 0.8) res = r2; }
+  // notas encontradas (tiempo y altura reales) + las que faltan, estimadas entre sus vecinas
+  const out = [];
+  for (let q = 0; q < res.pairs.length;) {                 // notas encontradas; si una cubre varias de la partitura, se reparte
+    const j = res.pairs[q][1]; let e = q; while (e + 1 < res.pairs.length && res.pairs[e + 1][1] === j) e++;
+    const is = res.pairs.slice(q, e + 1).map(x => x[0]), w = is.map(i => P[i].d), W2 = w.reduce((a, b) => a + b, 0);
+    let t = D[j].t;
+    is.forEach((i, z) => { const d = D[j].d * w[z] / W2; out.push({ t, d: Math.max(0.08, d - (z < is.length - 1 ? 0.04 : 0)), p: D[j].p, found: true }); t += d; });
+    q = e + 1;
+  }
+  for (let q = 1; q < res.pairs.length; q++) {
+    const [i1, j1] = res.pairs[q - 1], [i2, j2] = res.pairs[q]; if (i2 - i1 < 2) continue;
+    const a = D[j1], b = D[j2], sA = P[i1].t, sB = P[i2].t;
+    const rr = ratios.length ? ratios[ratios.length >> 1] : 1;
+    if (b.t - a.t > 3 * (sB - sA) * rr + 1.5) continue;          // hueco demasiado grande para estimar notas ahí
+    for (let i = i1 + 1; i < i2; i++) {
+      const f = sB > sA ? (P[i].t - sA) / (sB - sA) : (i - i1) / (i2 - i1), t = a.t + f * (b.t - a.t);
+      const pc = mod(P[i].p + res.k, 12), ref = a.p; let p = pc + 12 * Math.round((ref - pc) / 12);
+      const f2 = sB > sA ? (P[i].t + P[i].d - sA) / (sB - sA) : f + 1 / (i2 - i1);
+      out.push({ t, d: Math.max(0.12, a.t + Math.min(1, f2) * (b.t - a.t) - t - 0.04), p, found: false });
+    }
+  }
+  out.sort((x, y) => x.t - y.t);
+  for (let q = 0; q + 1 < out.length; q++) if (out[q].t + out[q].d > out[q + 1].t - 0.02) out[q].d = Math.max(0.08, out[q + 1].t - 0.02 - out[q].t);
+  const found = out.filter(x => x.found).length, est = out.length - found;
+  return { notes: out, found, est, total: n, k: res.k };
+}
+
 function refreshNotes() {
   if (MID.parts) {
-    if (IMP.S && MID.al && !MID.warp) MID.warp = warpNotes([...MID.sel].flatMap(k => MID.parts[k].notes), MID.al.r, MID.al.k, IMP.S);
-    IMP.notes = [...MID.sel].flatMap(k => { const ns = MID.parts[k].notes.map(midMap); return IMP.S && MID.warp ? refineOnsets(ns, IMP.S) : ns; })
-      .filter(n => n.t + n.d > 0).sort((a, b) => a.t - b.t);
-    if (IMP.S && MID.warp) {
-      for (const n of IMP.notes) n.match = noteMatch(n, IMP.S);
-      const ok = IMP.notes.filter(n => n.match >= 0.3).length, tot = IMP.notes.length;
-      $('midInfo').innerHTML = 'Acomodé tus notas a la grabación. <b style="color:' + (ok / tot > 0.8 ? 'var(--ok)' : 'var(--acc)') + '">' + ok + ' de ' + tot +
-        ' calzan</b> con lo que suena.' + (ok < tot ? ' Las <b style="color:var(--bad)">rojas</b> no se escuchan en la grabación en ese momento: revisa esa parte de la partitura (o puede que la cante otra voz). Haz clic en el dibujo para escuchar desde ahí.' : ' Haz clic en el dibujo para escuchar desde ahí.');
-    }
+    if (IMP.det) {
+      if (!MID.fol) MID.fol = [...MID.sel].map(k => followScore(MID.parts[k].notes, IMP.det));
+      IMP.notes = MID.fol.flatMap(f => f.notes).sort((a, b) => a.t - b.t);
+      const found = MID.fol.reduce((s, f) => s + f.found, 0), est = MID.fol.reduce((s, f) => s + f.est, 0), tot = MID.fol.reduce((s, f) => s + f.total, 0);
+      const miss = tot - found - est, pct = tot ? found / tot : 0;
+      $('midInfo').innerHTML = 'Seguí tu partitura dentro de la grabación. <b style="color:' + (pct > 0.7 ? 'var(--ok)' : 'var(--acc)') + '">Encontré ' + found + ' de ' + tot +
+        ' notas</b> (en verde), con su tiempo y altura reales.' +
+        (est ? (est === 1 ? ' La nota <b style="color:var(--acc)">amarilla</b> no se oye clara en la grabación: la ubiqué entre sus vecinas (revisa si está bien escrita).'
+                          : ' Las <b style="color:var(--acc)">' + est + ' amarillas</b> no se oyen claras en la grabación: las ubiqué entre sus vecinas (revisa si están bien escritas).') : '') +
+        (miss > 0 ? ' ' + (miss === 1 ? '1 nota' : miss + ' notas') + ' de la partitura no aparecen en la grabación (al principio o al final): puede que la grabación sea otra versión.' : '') +
+        ' Haz clic en el dibujo para escuchar desde ahí.';
+    } else IMP.notes = [...MID.sel].flatMap(k => MID.parts[k].notes.map(n => ({ ...n }))).sort((a, b) => a.t - b.t);
   } else IMP.notes = IMP.det;
   const has = !!(IMP.notes && IMP.notes.length);
   IMP.show = has || !!IMP.det;
@@ -1547,7 +1625,7 @@ function refreshNotes() {
 }
 function doAlign() {
   if (!(MID.parts && IMP.det)) return;
-  MID.al = alignMidi(IMP.det, MID.parts.map(p => p.notes)); MID.warp = null;
+  MID.fol = null;
 }
 function renderMid() {
   $('midParts').classList.toggle('hidden', MID.parts.length < 2);
@@ -1560,7 +1638,7 @@ function renderMid() {
   $('midParts').querySelectorAll('input').forEach(c => c.onchange = () => {
     if (c.checked) MID.sel.add(+c.value); else MID.sel.delete(+c.value);
     if (!MID.sel.size) { MID.sel.add(+c.value); c.checked = true; }
-    MID.warp = null; refreshNotes();
+    MID.fol = null; refreshNotes();
   });
 }
 async function loadMidiFile(file) {
@@ -1696,7 +1774,7 @@ function parseBeats(txt, keySig, bpm) {
 
 function useParts(parts, name) {
   impStop(); $('recErr').classList.add('hidden');
-  Object.assign(MID, { parts, name, al: null, man: 0, warp: null });
+  Object.assign(MID, { parts, name, al: null, man: 0, warp: null, fol: null });
   MID.main = pickMain(parts); MID.sel = new Set([MID.main]);
   IMP.show = true; REC.res = null; REC.fr = [];
   renderMid();
