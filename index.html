@@ -62,6 +62,11 @@
   .vrow small{color:var(--mute)}
   .vrow input{accent-color:var(--acc)}
   .vrow button{padding:6px 12px}
+  .step{display:flex;gap:12px;margin:14px 0;padding-top:14px;border-top:1px solid #ffffff12}
+  .sn{flex:none;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#1b1500;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .sb{flex:1;min-width:0}
+  .st{margin-top:6px;text-align:left;color:var(--ok)}
+  details summary{cursor:pointer}
   .err{color:var(--bad);font-size:14px;margin-top:10px}
   .hint{font-size:12px;color:var(--mute);margin-top:14px}
 </style>
@@ -125,7 +130,7 @@
     </label>
     <div class="btns">
       <button class="main" id="start">Empezar</button>
-      <button class="sec" id="toRec">🎙 Grabar melodía</button>
+      <button class="sec" id="toRec">🎤 Cantar una canción</button>
       <button class="sec hidden" id="recal">Recalibrar voz</button>
     </div>
     <div class="err hidden" id="err"></div>
@@ -153,62 +158,88 @@
 
 <div class="overlay hidden" id="rec">
   <div class="card">
-    <h2>Grabar melodía</h2>
-    <p>Tararea con "ta ta ta" o "la la la" siguiendo el pulso, o sube un audio para cantar encima: suena la grabación y el juego te muestra sus notas. Si tienes la canción en MIDI, cárgalo también: sus notas son más exactas que las que detecto, y lo sincronizo solo con tu grabación.</p>
-    <div class="btns" style="margin:0 0 12px">
-      <button class="sec" id="impBtn">📁 Subir un audio</button>
-      <button class="sec" id="midBtn">🎼 Cargar notas de un MIDI</button>
-      <button class="sec" id="wrBtn">✍️ Escribir las notas</button>
-      <input type="file" id="midFile" accept=".mid,.midi,audio/midi,audio/x-midi" class="hidden">
-      <input type="file" id="impFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" class="hidden">
-    </div>
-    <div id="impProg" class="hidden"><div class="bar"><i id="impBar"></i></div></div>
-    <label class="row">Pulso <input type="range" id="bpm" min="50" max="120" step="5" value="80"><span class="val" id="bpmV">80</span></label>
-    <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
-    <canvas id="recCv" style="width:100%;height:170px;background:#0e1020;border-radius:12px;display:block"></canvas>
-    <div class="small" id="recInfo" style="margin:8px 0;text-align:left">Aprieta Grabar y canta. El punto amarillo marca el pulso.</div>
-    <div id="wrBox" class="hidden" style="margin-bottom:14px">
-      <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px">
-        <label>Armadura <select id="wrKey" class="sel2">
+    <h2>Cantar una canción</h2>
+    <p>Sube la grabación, pon sus notas, revisa que calcen y canta encima con el audio real de fondo.</p>
+    <input type="file" id="midFile" accept=".mid,.midi,audio/midi,audio/x-midi" class="hidden">
+    <input type="file" id="impFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" class="hidden">
+    <button id="wrBtn" class="hidden"></button>
+
+    <div class="step"><div class="sn">1</div><div class="sb">
+      <b>La grabación</b>
+      <div class="btns" style="margin:8px 0 0"><button class="sec" id="impBtn">📁 Subir la grabación</button></div>
+      <div class="small st" id="st1"></div>
+      <div id="impProg" class="hidden"><div class="bar"><i id="impBar"></i></div></div>
+    </div></div>
+
+    <div class="step"><div class="sn">2</div><div class="sb">
+      <b>Sus notas</b> <span class="small">(de la partitura; el ritmo lo saco de la grabación)</span>
+      <div id="wrBox" style="margin-top:8px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px;margin-bottom:8px">
+          <label>Armadura <select id="wrKey" class="sel2">
           <option value="0">Sin ♯ ni ♭</option>
           <option value="1">1 ♯ (Fa♯)</option><option value="2">2 ♯ (Fa♯ Do♯)</option><option value="3">3 ♯ (Fa♯ Do♯ Sol♯)</option><option value="4">4 ♯ (+ Re♯)</option>
           <option value="-1">1 ♭ (Si♭)</option><option value="-2">2 ♭ (Si♭ Mi♭)</option><option value="-3">3 ♭ (Si♭ Mi♭ La♭)</option><option value="-4">4 ♭ (+ Re♭)</option>
         </select></label>
-        <label>Formato <select id="wrFmt" class="sel2">
+          <label>Tempo ♩= <input type="number" id="wrBpm" value="100" min="20" max="300" style="width:70px;background:#ffffff14;color:var(--ink);border:0;border-radius:8px;padding:6px 8px;font:inherit"></label>
+        </div>
+        <textarea id="wrTxt" rows="5" spellcheck="false" placeholder="Pega o escribe las notas, por ejemplo:  Do | Do | Sol | Sol | La | La | Sol - |"></textarea>
+        <details class="hint" style="margin-top:6px"><summary>¿Cómo escribir las notas?</summary>
+          <div style="margin-top:6px"><b>Por tiempos</b> (puedes pegar todo de una, con títulos y "Compás 2:"): cada <b>|</b> separa un tiempo, <b>-</b> alarga la nota un tiempo, <b>•</b> es un tiempo de silencio, <b>Sib/La</b> son dos notas en un tiempo, <b>(Re)</b> es una nota ligada, <b>(Do)Re</b> un adorno, <b>(grave)</b> baja una octava. Las líneas "Casilla 1" / "Casilla 2" y "te devuelve al Compás N" arman la repetición sola.<br><b>Con duraciones</b>: el número es la duración en negras: <b>1</b> negra, <b>0.5</b> corchea, <b>2</b> blanca, <b>4</b> redonda; un punto al final es puntillo (<b>Sol1.</b>). <b>-1</b> es un silencio de negra. <b>~</b> liga con la nota siguiente (<b>Re2~ Re1</b>). <b>'</b> sube una octava y <b>,</b> la baja (<b>Do'</b>). La armadura se aplica sola; para una alteración escribe <b>#</b>, <b>b</b> o <b>n</b> (natural): <b>Fa#</b>, <b>Sib</b>, <b>Sin</b>. <b>|</b> separa compases y no cuenta. Para repetir: <b>[ … ]x2</b>.</div>
+          <div style="margin-top:8px;font-size:13px"><label>Formato <select id="wrFmt" class="sel2">
           <option value="auto">Detectar solo</option><option value="dur">Con duraciones (Sol1 Sib0.5)</option><option value="beats">Por tiempos (Re - | Mi♭ |)</option>
-        </select></label>
-        <label>Tempo ♩= <input type="number" id="wrBpm" value="100" min="20" max="300" style="width:70px;background:#ffffff14;color:var(--ink);border:0;border-radius:8px;padding:6px 8px;font:inherit"></label>
+        </select></label></div>
+        </details>
+        <div class="btns" style="margin-top:8px">
+          <button class="main" id="wrUse">Usar estas notas</button>
+          <button class="sec" id="midBtn">🎼 o cargar un MIDI</button>
+        </div>
+        <div class="small st" id="st2"></div>
       </div>
-      <textarea id="wrTxt" rows="5" spellcheck="false" placeholder="Do1 Do1 Sol1 Sol1 | La1 La1 Sol2 | Fa1 Fa1 Mi1 Mi1 | Re1 Re1 Do2"></textarea>
-      <div class="hint" style="margin-top:6px"><b>Por tiempos</b> (puedes pegar todo de una, con títulos y "Compás 2:"): cada <b>|</b> separa un tiempo, <b>-</b> alarga la nota un tiempo, <b>•</b> es un tiempo de silencio, <b>Sib/La</b> son dos notas en un tiempo, <b>(Re)</b> es una nota ligada, <b>(Do)Re</b> un adorno, <b>(grave)</b> baja una octava. Las líneas "Casilla 1" / "Casilla 2" y "te devuelve al Compás N" arman la repetición sola.<br><b>Con duraciones</b>: el número es la duración en negras: <b>1</b> negra, <b>0.5</b> corchea, <b>2</b> blanca, <b>4</b> redonda; un punto al final es puntillo (<b>Sol1.</b>). <b>-1</b> es un silencio de negra. <b>~</b> liga con la nota siguiente (<b>Re2~ Re1</b>). <b>'</b> sube una octava y <b>,</b> la baja (<b>Do'</b>). La armadura se aplica sola; para una alteración escribe <b>#</b>, <b>b</b> o <b>n</b> (natural): <b>Fa#</b>, <b>Sib</b>, <b>Sin</b>. <b>|</b> separa compases y no cuenta. Para repetir: <b>[ … ]x2</b>.</div>
-      <div class="btns" style="margin-top:8px"><button class="main" id="wrUse">Usar estas notas</button></div>
-    </div>
-    <div id="midBox" class="hidden">
-      <div id="midParts"></div>
-      <div class="small" id="midInfo" style="text-align:left;margin:6px 0"></div>
-      <label class="row" id="offRow">Ajuste fino de sincronía <input type="range" id="midOff" min="-3" max="3" step="0.05" value="0"><span class="val" id="midOffV">0,00 s</span></label>
-      <button class="sec" id="midClear" style="padding:8px 12px;font-size:13px">Quitar estas notas</button>
-    </div>
-    <div id="impBox" class="hidden">
-      <label class="row" id="guideRow">Tocar las notas con el instrumento, como guía <input type="checkbox" id="karaGuide" style="accent-color:var(--acc);width:18px;height:18px"></label>
-      <label class="row">La octava no importa <input type="checkbox" id="karaOct" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
+    </div></div>
+
+    <div class="step"><div class="sn">3</div><div class="sb">
+      <b>Revisa que calcen</b>
+      <div class="small" style="margin:4px 0 8px;text-align:left">En gris, lo que suena en la grabación; encima, tus notas: <span style="color:var(--ok)">verde</span> si calza, <span style="color:var(--bad)">rojo</span> si no. Haz clic en el dibujo para escuchar desde ahí.</div>
+      <div id="cvWrap" style="overflow-x:auto;border-radius:12px;background:#0e1020"><canvas id="recCv" style="width:100%;height:170px;display:block;cursor:pointer"></canvas></div>
+      <div class="small" id="recInfo" style="margin:8px 0;text-align:left"></div>
+      <div id="midBox" class="hidden">
+        <div id="midParts"></div>
+        <div class="small" id="midInfo" style="text-align:left;margin:6px 0"></div>
+        <label class="row hidden" id="offRow">Ajuste fino <input type="range" id="midOff" min="-3" max="3" step="0.05" value="0"><span class="val" id="midOffV">0,00 s</span></label>
+      </div>
       <div class="btns" style="margin-top:6px">
-        <button class="main" id="impUse">🎤 Cantar encima</button>
-        <button class="sec" id="impOrig">▶ Escuchar la grabación</button>
-        <button class="sec" id="impSyn">▶ Escuchar las notas</button>
         <button class="sec" id="impBoth">▶ Grabación + notas</button>
+        <button class="sec" id="impOrig">▶ Solo la grabación</button>
+        <button class="sec" id="impSyn">▶ Solo las notas</button>
+        <button class="sec" id="midClear" style="font-size:13px">Quitar las notas</button>
       </div>
-      <div class="hint">Usa audífonos: la grabación suena mientras cantas y las notas avanzan con ella. Si cantas cualquiera de las notas que están sonando, cuenta.</div>
-      <hr style="border:0;border-top:1px solid #ffffff1a;margin:16px 0">
-    </div>
-    <textarea id="recTxt" rows="3" spellcheck="false" placeholder="Aquí aparecen las notas"></textarea>
-    <div class="btns">
-      <button class="main" id="recBtn">● Grabar</button>
-      <button class="sec" id="recPlay">▶ Escuchar</button>
-      <button class="sec" id="recUse">Jugar esta melodía</button>
-      <button class="sec" id="recBack">Volver</button>
-    </div>
+    </div></div>
+
+    <div class="step"><div class="sn">4</div><div class="sb">
+      <b>Canta</b>
+      <div id="impBox" class="hidden">
+        <label class="row" id="guideRow">Tocar también las notas con el instrumento <input type="checkbox" id="karaGuide" style="accent-color:var(--acc);width:18px;height:18px"></label>
+        <label class="row">La octava no importa <input type="checkbox" id="karaOct" checked style="accent-color:var(--acc);width:18px;height:18px"></label>
+        <div class="btns" style="margin-top:6px"><button class="main" id="impUse">🎤 Cantar encima</button></div>
+        <div class="hint">Con audífonos: suena la grabación y las notas avanzan con ella.</div>
+      </div>
+      <div class="small" id="st4" style="text-align:left">Primero sube la grabación o pon las notas.</div>
+    </div></div>
+
+    <details id="humBox" style="margin-top:14px"><summary class="small" style="cursor:pointer">…o graba una melodía tarareando</summary>
+      <p class="small" style="text-align:left">Tararea con "ta ta ta" siguiendo el pulso; el juego la convierte en notas (aparecen en el dibujo de arriba) y la puedes jugar en el nivel Canción.</p>
+      <label class="row">Pulso <input type="range" id="bpm" min="50" max="120" step="5" value="80"><span class="val" id="bpmV">80</span></label>
+      <label class="row">Metrónomo con sonido (solo con audífonos) <input type="checkbox" id="click" style="accent-color:var(--acc);width:18px;height:18px"></label>
+      <textarea id="recTxt" rows="3" spellcheck="false" placeholder="Aquí aparecen las notas"></textarea>
+      <div class="btns">
+        <button class="main" id="recBtn">● Grabar</button>
+        <button class="sec" id="recPlay">▶ Escuchar</button>
+        <button class="sec" id="recUse">Jugar esta melodía</button>
+      </div>
+    </details>
+
     <div class="err hidden" id="recErr"></div>
+    <div class="btns"><button class="sec" id="recBack">Volver</button></div>
   </div>
 </div>
 
@@ -467,7 +498,7 @@ addEventListener('keydown', e => {
 /* ---------- game state ---------- */
 let phase = 'menu';
 const AUTO = /[?&]auto=1/.test(location.search);   // demo/prueba: la pelota canta sola
-if (AUTO) window.__dbg = () => ({ phase, noteT: K.noteT, onT: K.onT, hits: K.hits });
+if (AUTO) window.__dbg = () => ({ phase, noteT: K.noteT, onT: K.onT, hits: K.hits, notes: IMP.notes && IMP.notes.map(n => [n.t, n.d, n.p, n.match]) });
 const HOLD = 0.55;              // tunnel length, in "travel seconds"
 let G = null;
 const range = () => WRAP() ? { lo: 0, hi: 11 } : cfg.mode === 'song' && G && G.lo != null ? { lo: G.lo, hi: G.hi } : { lo: comf - 9, hi: comf + 10 };
@@ -985,7 +1016,10 @@ function recStep(now) {
     if (now - REC.t0 > 30) recStop();
   }
   // dibujo: curva de la voz y, al terminar, las notas detectadas
-  const cv = $('recCv'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  const cv = $('recCv'), review = IMP.show && IMP.notes && IMP.S && MID.parts && !REC.on;
+  const wantW = review ? Math.max($('cvWrap').clientWidth, Math.round(impDur() * 40)) + 'px' : '100%', wantH = review ? '230px' : '170px';
+  if (cv.style.width !== wantW) cv.style.width = wantW; if (cv.style.height !== wantH) cv.style.height = wantH;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   if (!w) return;
   if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
@@ -1054,14 +1088,14 @@ function cleanNotes(raw) {
 function impStop() {
   if (IMP.bus) { try { IMP.bus.disconnect(); } catch (e) {} IMP.bus = null; }
   IMP.playing = null;
-  $('impOrig').textContent = '▶ Escuchar la grabación'; $('impSyn').textContent = '▶ Escuchar las notas'; $('impBoth').textContent = '▶ Grabación + notas';
+  $('impOrig').textContent = '▶ Solo la grabación'; $('impSyn').textContent = '▶ Solo las notas'; $('impBoth').textContent = '▶ Grabación + notas';
 }
-function impPlay(what) {
-  const again = IMP.playing === what; impStop(); if (again) return;
+function impPlay(what, from = 0) {
+  const again = IMP.playing === what && !from; impStop(); if (again) return;
   ensureCtx(); actx.resume();
-  IMP.bus = actx.createGain(); IMP.bus.connect(actx.destination); IMP.playing = what; IMP.playT0 = actx.currentTime + 0.05;
-  if (what !== 'syn') { const s = actx.createBufferSource(); s.buffer = IMP.buf; s.connect(IMP.bus); s.start(IMP.playT0); }
-  if (what !== 'orig') for (const n of IMP.notes) if (n.t >= 0) playTone(n.p, 0.05 + n.t, Math.max(0.2, Math.min(3, n.d)), { dest: IMP.bus, vol: what === 'both' ? 0.6 : 0.5, noMute: true });
+  IMP.bus = actx.createGain(); IMP.bus.connect(actx.destination); IMP.playing = what; IMP.playT0 = actx.currentTime + 0.05; IMP.playFrom = from;
+  if (what !== 'syn') { const s = actx.createBufferSource(); s.buffer = IMP.buf; s.connect(IMP.bus); s.start(IMP.playT0, from); }
+  if (what !== 'orig') for (const n of IMP.notes) if (n.t >= from) playTone(n.p, 0.05 + n.t - from, Math.max(0.2, Math.min(3, n.d)), { dest: IMP.bus, vol: what === 'both' ? 0.6 : 0.5, noMute: true });
   $({ orig: 'impOrig', syn: 'impSyn', both: 'impBoth' }[what]).textContent = '■ Detener';
 }
 async function importAudio(file) {
@@ -1087,24 +1121,41 @@ async function importAudio(file) {
     const raw = BP.noteFramesToTime(BP.addPitchBendsToNoteEvents(C, BP.outputToNotesPoly(F, O, 0.5, 0.3, 11)))
       .map(n => ({ t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }));
     const notes = cleanNotes(raw);
+    IMP.S = buildSal(F, dec.duration, O);
     if (!notes.length) throw new Error('No encontré notas claras en ese audio.');
     Object.assign(IMP, { det: notes, buf: dec, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40), show: true });
     const ps = notes.map(n => n.p);
-    $('recInfo').textContent = 'Encontré ' + notes.length + ' notas en la grabación, entre ' + nameOf(Math.min(...ps)) + ' y ' + nameOf(Math.max(...ps)) + '.' +
-      (MID.parts ? '' : ' Si tienes la canción en MIDI, cárgala para usar sus notas en vez de las detectadas.');
+    const fmt = x => Math.floor(x / 60) + ':' + String(Math.round(x % 60)).padStart(2, '0');
+    $('st1').textContent = '✓ ' + file.name.slice(0, 40) + ' (' + fmt(dec.duration) + ')';
+    $('recInfo').textContent = MID.parts ? '' : 'Sin notas todavía, el juego usa las que detecto en la grabación (pueden fallar con varias voces). Para que sea exacto, pon las notas en el paso 2.';
     doAlign(); refreshNotes();
   } catch (e) {
     $('recInfo').textContent = ''; $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden');
   } finally { $('impProg').classList.add('hidden'); }
 }
 function impDraw(c, w, h) {
-  const ns = IMP.notes, dur = impDur();
-  const lo = Math.min(...ns.map(n => n.p)) - 1, hi = Math.max(...ns.map(n => n.p)) + 2;
-  const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h, rh = Math.max(2, 0.8 * h / (hi - lo));
-  c.fillStyle = '#ffffff0a'; for (let p = lo; p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
-  if (MID.parts && IMP.det) { c.fillStyle = '#ffffff30'; for (const n of IMP.det) if (n.p >= lo && n.p < hi) c.fillRect(X(n.t), Y(n.p + 0.4), Math.max(2, X(n.d) - 1), rh); }   // detectadas, en gris, para comparar
-  for (const n of ns) { c.fillStyle = colorOf(pcOf(n.p), 0.85); c.fillRect(X(n.t), Y(n.p + 0.4), Math.max(2, X(n.d) - 1), rh); }
-  if (IMP.playing) { const x = X(actx.currentTime - IMP.playT0); if (x > 0 && x < w) { c.fillStyle = '#fff'; c.fillRect(x, 0, 2, h); } }
+  const ns = IMP.notes, dur = impDur(), S = IMP.S;
+  const lo = Math.min(...ns.map(n => n.p)) - 4, hi = Math.max(...ns.map(n => n.p)) + 4;
+  const X = t => t / dur * w, Y = p => h - (p - lo) / (hi - lo) * h, rh = Math.max(3, 0.8 * h / (hi - lo));
+  c.fillStyle = '#ffffff08'; for (let p = lo; p < hi; p++) if (!isBlack(pcOf(p))) c.fillRect(0, Y(p + 0.5), w, h / (hi - lo));
+  if (S && MID.parts) {                                   // la voz real de la grabación, en gris
+    const cw = Math.max(1, w / dur / SFPS + 0.5);
+    for (let j = 0; j < S.T; j++) for (let p = lo; p < hi; p++) {
+      const v = S.sal[j * 88 + p - 21]; if (v < 0.18) continue;
+      c.fillStyle = 'rgba(230,232,255,' + Math.min(0.85, v).toFixed(2) + ')'; c.fillRect(X(j / SFPS), Y(p + 0.35), cw, 0.7 * h / (hi - lo));
+    }
+  }
+  c.font = '600 10px system-ui'; c.textBaseline = 'bottom';
+  for (const n of ns) {
+    const x = X(n.t), bw = Math.max(2, X(n.d) - 1), y = Y(n.p + 0.4);
+    if (n.match != null) { const ok = n.match >= 0.3; c.strokeStyle = ok ? '#5be39b' : '#ff6b7a'; c.lineWidth = 2; c.fillStyle = ok ? '#5be39b40' : '#ff6b7a66'; c.fillRect(x, y, bw, rh); c.strokeRect(x, y, bw, rh); }
+    else { c.fillStyle = colorOf(pcOf(n.p), 0.85); c.fillRect(x, y, bw, rh); }
+    if (bw > 22 && MID.parts) { c.fillStyle = '#fff'; c.fillText(NAMES[pcOf(n.p)], x + 2, y - 1); }
+  }
+  if (IMP.playing) {
+    const tt = actx.currentTime - IMP.playT0 + (IMP.playFrom || 0), x = X(tt);
+    if (x > 0 && x < w) { c.fillStyle = '#ffcc4d'; c.fillRect(x, 0, 2, h); const wr = $('cvWrap'); if (x < wr.scrollLeft || x > wr.scrollLeft + wr.clientWidth - 40) wr.scrollLeft = x - 40; }
+  }
 }
 
 const K = { on: false, start: 0, src: null, ball: null, trail: [], noteT: 0, onT: 0, streak: 0, best: 0, hits: 0, oct: true };
@@ -1322,8 +1373,10 @@ function pickMain(parts) {
 function alignMidi(det, mid) {
   const all = mid.flat(), pcW = arr => { const h = new Array(12).fill(0); for (const n of arr) h[mod(n.p, 12)] += n.d; const s = Math.hypot(...h) || 1; return h.map(x => x / s); };
   const hd = pcW(det), hm = pcW(all);
-  let k = 0, bk = -1;
-  for (let s = -6; s < 6; s++) { let v = 0; for (let c = 0; c < 12; c++) v += hd[mod(c + s, 12)] * hm[c]; if (v > bk) { bk = v; k = s; } }
+  const ks = [];
+  for (let s = -6; s < 6; s++) { let v = 0; for (let c = 0; c < 12; c++) v += hd[mod(c + s, 12)] * hm[c]; ks.push([v, s]); }
+  ks.sort((a, b) => b[0] - a[0]);
+  let k = ks[0][1];
   const dDur = Math.max(...det.map(n => n.t + n.d)), mDur = Math.max(...all.map(n => n.t + n.d));
   const search = (fps, rs, oFrom, oTo) => {
     const T = Math.ceil(dDur * fps) + 2, A = new Uint8Array(T * 12);
@@ -1343,7 +1396,10 @@ function alignMidi(det, mid) {
     return best;
   };
   const rs = []; for (let r = 0.7; r <= 1.42; r += 0.01) rs.push(+r.toFixed(3));
-  let b1 = search(4, rs, -mDur * 1.4, dDur);
+  // prueba las 3 tonalidades más probables y se queda con la que mejor calza en el tiempo
+  let b1 = { s: -1 };
+  for (const [, cand] of ks.slice(0, 3)) { k = cand; const b = search(4, rs, -mDur * 1.4, dDur); if (b.s > b1.s) { b1 = b; b1.k = cand; } }
+  k = b1.k;
   const rs2 = []; for (let r = b1.r - 0.015; r <= b1.r + 0.0151; r += 0.0025) rs2.push(+r.toFixed(4));
   const b2 = search(20, rs2, b1.o - 1, b1.o + 1);
   // octava: la que hace coincidir más notas con su altura exacta (no solo el nombre)
@@ -1361,30 +1417,140 @@ function alignMidi(det, mid) {
 
 const MID = { parts: null, main: 0, sel: new Set(), al: null, man: 0, name: '' };
 const impDur = () => IMP.buf ? IMP.buf.duration : Math.max(...IMP.notes.map(n => n.t + n.d)) + 1;
-const midMap = n => { const a = (IMP.det && MID.al) || { r: 1, o: 0, k: 0 }; return { t: n.t * a.r + a.o + (IMP.det ? MID.man : 0), d: n.d * a.r, p: n.p + a.k }; };
+const midMap = n => {
+  const a = (IMP.det && MID.al) || { r: 1, o: 0, k: 0 };
+  if (MID.warp) { const t0 = MID.warp.at(n.t), t1 = MID.warp.at(n.t + n.d); return { t: t0, d: Math.max(0.1, t1 - t0 - 0.04), p: n.p + a.k, wd: n.d }; }
+  return { t: n.t * a.r + a.o, d: n.d * a.r, p: n.p + a.k };
+};
 // qué notas usa el juego: las del MIDI (voces elegidas) si hay uno; si no, las detectadas en el audio
+/* ---------- huella de la grabación + acomodo de notas a la grabación ---------- */
+const SFPS = 20;   // cuadros por segundo de la huella
+const BP_WOFF = (256 / 22050) * (172 - (22050 * 2 - 256) / 256) + 0.0018;
+const bpFrameTime = f => f * 256 / 22050 - BP_WOFF * Math.floor(f / 172);
+// salience: para cada cuadro y cada nota (MIDI 21..108), cuánto "suena" esa nota en la grabación (0..1)
+function buildSal(F, dur, O) {
+  const T = Math.ceil(dur * SFPS) + 1, sal = new Float32Array(T * 88), chr = new Float32Array(T * 12), on = new Float32Array(T * 12);
+  for (let f = 0; f < F.length; f++) {
+    const j = Math.floor(bpFrameTime(f) * SFPS); if (j < 0 || j >= T) continue;
+    const row = F[f];
+    for (let q = 0; q < 88; q++) { const v = row[q]; if (v > sal[j * 88 + q]) sal[j * 88 + q] = v; const c = j * 12 + (q + 21) % 12; if (v > chr[c]) chr[c] = v; if (O && O[f][q] > on[c]) on[c] = O[f][q]; }
+  }
+  return { T, sal, chr, on };
+}
+// pone cada nota donde suena en la grabación (alineación elástica): devuelve, para cada cuadro de la partitura, el cuadro del audio
+function warpNotes(notes, r, k, S) {
+  const end = Math.max(...notes.map(n => n.t + n.d)) * r;
+  let fs = SFPS; while (Math.ceil(end * fs) * S.T / (SFPS / fs) > 16e6 && fs > 5) fs /= 2;
+  const ds = SFPS / fs, M = Math.ceil(end * fs) + 1, N = Math.ceil(S.T / ds);
+  // partitura: hasta 3 notas por cuadro (nombre de nota, sin octava)
+  const sp = new Int8Array(M * 3).fill(-1), st = new Int8Array(M).fill(-1);   // st: cuadro donde empieza una nota
+  for (const n of notes) {
+    const pc = mod(n.p + k, 12), f0 = Math.floor(n.t * r * fs);
+    if (f0 < M && st[f0] < 0) st[f0] = pc;
+    for (let f = Math.floor(n.t * r * fs); f < Math.max(Math.floor(n.t * r * fs) + 1, Math.ceil((n.t + n.d) * r * fs)) && f < M; f++)
+      for (let s = 0; s < 3; s++) { if (sp[f * 3 + s] === pc) break; if (sp[f * 3 + s] < 0) { sp[f * 3 + s] = pc; break; } }
+  }
+  // audio reducido a fs
+  const A = new Float32Array(N * 12), On = new Float32Array(N * 12), mx = new Float32Array(N);
+  for (let j = 0; j < N; j++) for (let c = 0; c < 12; c++) {
+    let v = 0, o = 0;
+    for (let q = Math.max(0, j * ds - ds); q < Math.min(S.T, (j + 1) * ds + ds); q++) o = Math.max(o, S.on[q * 12 + c]);   // ataque, con un cuadro de margen
+    for (let q = j * ds; q < Math.min(S.T, (j + 1) * ds); q++) v = Math.max(v, S.chr[q * 12 + c]);
+    A[j * 12 + c] = v; On[j * 12 + c] = o; if (v > mx[j]) mx[j] = v;
+  }
+  const cost = (i, j) => {
+    const onC = st[i] >= 0 ? 2 * (1 - Math.min(1, On[j * 12 + st[i]] * 1.5)) : 0;   // el inicio de una nota tiene que caer en un ataque
+    if (mx[j] < 0.12) return 0.35 + onC;                 // silencio en la grabación: neutro, no estira ni encoge notas
+    let best = -1; for (let s = 0; s < 3; s++) { const pc = sp[i * 3 + s]; if (pc < 0) break; best = Math.max(best, A[j * 12 + pc]); }
+    return (best < 0 ? 0.5 * mx[j] : 1 - best) + onC;
+  };
+  const D = new Float32Array(M * N), B = new Uint8Array(M * N), PEN = 0.15;
+  for (let i = 0; i < M; i++) for (let j = 0; j < N; j++) {
+    const c = cost(i, j);
+    if (i === 0) { const h = j > 0 ? D[j - 1] + c + PEN : Infinity; if (c <= h) { D[j] = c; B[j] = 0; } else { D[j] = h; B[j] = 2; } continue; }  // empieza donde sea
+    let v = Infinity, b = 1;
+    if (j > 0) { const d = D[(i - 1) * N + j - 1]; if (d < v) { v = d; b = 1; } const h = D[i * N + j - 1] + PEN; if (h < v) { v = h; b = 2; } }
+    const u = D[(i - 1) * N + j] + PEN; if (u < v) { v = u; b = 3; }
+    D[i * N + j] = v + c; B[i * N + j] = b;
+  }
+  let j = 0; for (let q = 1; q < N; q++) if (D[(M - 1) * N + q] < D[(M - 1) * N + j]) j = q;   // termina donde sea
+  const map = new Float32Array(M + 1).fill(-1); let i = M - 1;
+  map[M] = (j + 1) / fs;
+  while (i >= 0) {
+    map[i] = j / fs;                                     // se queda con el primer cuadro de audio de cada cuadro de partitura
+    const b = B[i * N + j]; if (i === 0 && b === 0) break;
+    if (b === 1) { i--; j--; } else if (b === 2) j--; else i--;
+    if (j < 0) break;
+  }
+  for (let q = 1; q <= M; q++) if (map[q] < 0) map[q] = map[q - 1];
+  return { fs, r, map, at: t => { const x = Math.max(0, Math.min(M, t * r * fs)), a = Math.floor(x), f = x - a; return a >= M ? map[M] : map[a] * (1 - f) + map[a + 1] * f; } };
+}
+// afina el inicio de cada nota con los ataques que se oyen en la grabación (clave para notas repetidas)
+function refineOnsets(ns, S) {
+  for (let i = 0; i < ns.length; i++) {
+    const n = ns[i], pc = mod(n.p, 12), prev = ns[i - 1], next = ns[i + 1];
+    const lo = Math.max(n.t - 0.45, prev ? prev.t + 0.12 : 0), hi = Math.min(n.t + Math.max(0.45, n.d * 0.9), next ? next.t + 0.2 : Infinity);   // dentro del tramo que le tocó
+    let bj = -1, bv = 0.25;
+    for (let j = Math.ceil(lo * SFPS); j <= Math.floor(hi * SFPS) && j < S.T; j++) {
+      const v = S.on[j * 12 + pc] - 0.15 * Math.abs(j / SFPS - n.t);   // prefiere el ataque más cercano
+      if (v > bv) { bv = v; bj = j; }
+    }
+    if (bj < 0) continue;
+    const nt = bj / SFPS, end = n.t + n.d;
+    n.t = nt; n.d = Math.max(0.1, end - nt);
+    if (prev && prev.t + prev.d > nt - 0.03) prev.d = Math.max(0.08, nt - 0.03 - prev.t);
+  }
+  // cada nota termina donde deja de sonar (no se estira sobre los silencios)
+  for (const n of ns) {
+    const pc = mod(n.p, 12), j0 = Math.floor(n.t * SFPS);
+    let j1 = Math.min(S.T - 1, Math.ceil((n.t + n.d) * SFPS));
+    while (j1 > j0 + 2 && S.chr[j1 * 12 + pc] < 0.15) j1--;
+    n.d = Math.max(0.1, Math.min(n.d, (j1 + 1) / SFPS - n.t));
+  }
+  // nota repetida que quedó en un silencio: comparte el sonido de la anterior según las duraciones escritas
+  const sounds = n => { let s = 0, c = 0; for (let j = Math.floor(n.t * SFPS); j < Math.ceil((n.t + n.d) * SFPS) && j < S.T; j++) if (j >= 0) { s += S.chr[j * 12 + mod(n.p, 12)]; c++; } return c ? s / c : 0; };
+  for (let i = 1; i < ns.length; i++) {
+    const n = ns[i], prev = ns[i - 1];
+    if (mod(prev.p, 12) !== mod(n.p, 12) || sounds(n) >= 0.2 || sounds(prev) < 0.3 || !prev.wd || !n.wd) continue;
+    const tot = prev.d, ratio = prev.wd / (prev.wd + n.wd);
+    n.t = prev.t + tot * ratio; n.d = Math.max(0.1, tot * (1 - ratio)); prev.d = Math.max(0.08, tot * ratio - 0.03);
+  }
+  return ns;
+}
+// cuánto suena cada nota (ya acomodada) en la grabación: 0..1
+function noteMatch(n, S) {
+  let s = 0, c = 0; const pc = mod(n.p, 12);
+  for (let j = Math.floor(n.t * SFPS); j < Math.ceil((n.t + n.d) * SFPS) && j < S.T; j++) if (j >= 0) { s += S.chr[j * 12 + pc]; c++; }
+  return c ? s / c : 0;
+}
+
 function refreshNotes() {
-  if (MID.parts) IMP.notes = [...MID.sel].flatMap(k => MID.parts[k].notes.map(midMap)).filter(n => n.t + n.d > 0).sort((a, b) => a.t - b.t);
-  else IMP.notes = IMP.det;
+  if (MID.parts) {
+    if (IMP.S && MID.al && !MID.warp) MID.warp = warpNotes([...MID.sel].flatMap(k => MID.parts[k].notes), MID.al.r, MID.al.k, IMP.S);
+    IMP.notes = [...MID.sel].flatMap(k => { const ns = MID.parts[k].notes.map(midMap); return IMP.S && MID.warp ? refineOnsets(ns, IMP.S) : ns; })
+      .filter(n => n.t + n.d > 0).sort((a, b) => a.t - b.t);
+    if (IMP.S && MID.warp) {
+      for (const n of IMP.notes) n.match = noteMatch(n, IMP.S);
+      const ok = IMP.notes.filter(n => n.match >= 0.3).length, tot = IMP.notes.length;
+      $('midInfo').innerHTML = 'Acomodé tus notas a la grabación. <b style="color:' + (ok / tot > 0.8 ? 'var(--ok)' : 'var(--acc)') + '">' + ok + ' de ' + tot +
+        ' calzan</b> con lo que suena.' + (ok < tot ? ' Las <b style="color:var(--bad)">rojas</b> no se escuchan en la grabación en ese momento: revisa esa parte de la partitura (o puede que la cante otra voz). Haz clic en el dibujo para escuchar desde ahí.' : ' Haz clic en el dibujo para escuchar desde ahí.');
+    }
+  } else IMP.notes = IMP.det;
   const has = !!(IMP.notes && IMP.notes.length);
   IMP.show = has || !!IMP.det;
   $('impBox').classList.toggle('hidden', !has);
   $('midBox').classList.toggle('hidden', !MID.parts);
-  $('impOrig').classList.toggle('hidden', !IMP.buf);
+  $('impOrig').classList.toggle('hidden', !IMP.buf); $('st4').classList.toggle('hidden', has); $('impSyn').classList.toggle('hidden', !has); $('midClear').classList.toggle('hidden', !MID.parts);
   $('impBoth').classList.toggle('hidden', !(IMP.buf && MID.parts));
   $('guideRow').classList.toggle('hidden', !IMP.buf);
-  $('offRow').classList.toggle('hidden', !(IMP.buf && MID.parts));
-  $('impSyn').textContent = '▶ Escuchar las notas';
+  $('offRow').classList.add('hidden');
 }
 function doAlign() {
   if (!(MID.parts && IMP.det)) return;
-  MID.al = alignMidi(IMP.det, MID.parts.map(p => p.notes)); MID.man = 0; $('midOff').value = 0; $('midOffV').textContent = '0,00 s';
-  const a = MID.al, pct = Math.round(a.conf * 100);
-  $('midInfo').textContent = 'Sincronicé las notas con la grabación: tempo ×' + a.r.toFixed(3).replace('.', ',') + ', empieza en ' +
-    a.o.toFixed(1).replace('.', ',') + ' s, ' + (a.k >= 0 ? '+' : '') + a.k + ' semitonos. Coincidencia: ' + pct + '%.' +
-    (a.conf < 0.35 ? ' Es baja: puede que las notas sean de otro arreglo o tengan otro ritmo. Escucha "Grabación + notas" y corrige con el ajuste fino.' : '');
+  MID.al = alignMidi(IMP.det, MID.parts.map(p => p.notes)); MID.warp = null;
 }
 function renderMid() {
+  $('midParts').classList.toggle('hidden', MID.parts.length < 2);
   $('midParts').innerHTML = MID.parts.map((pt, k) => {
     const ps = pt.notes.map(n => n.p);
     return `<label class="vrow"><input type="checkbox" value="${k}" ${MID.sel.has(k) ? 'checked' : ''}>
@@ -1394,7 +1560,7 @@ function renderMid() {
   $('midParts').querySelectorAll('input').forEach(c => c.onchange = () => {
     if (c.checked) MID.sel.add(+c.value); else MID.sel.delete(+c.value);
     if (!MID.sel.size) { MID.sel.add(+c.value); c.checked = true; }
-    refreshNotes();
+    MID.warp = null; refreshNotes();
   });
 }
 async function loadMidiFile(file) {
@@ -1402,7 +1568,8 @@ async function loadMidiFile(file) {
   try {
     const parts = parseMidi(await file.arrayBuffer());
     useParts(parts, file.name.replace(/\.[^.]+$/, '').slice(0, 40));
-    $('recInfo').textContent = 'El MIDI tiene ' + parts.length + (parts.length === 1 ? ' parte' : ' partes') + '. Marqué como principal "' + parts[MID.main].name +
+    $('st2').textContent = '✓ MIDI cargado: ' + file.name.slice(0, 40);
+    $('recInfo').textContent = parts.length < 2 ? '' : 'El MIDI tiene ' + parts.length + (parts.length === 1 ? ' parte' : ' partes') + '. Marqué como principal "' + parts[MID.main].name +
       '"; puedes cambiarla o sumar otras.';
   } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
 }
@@ -1529,7 +1696,7 @@ function parseBeats(txt, keySig, bpm) {
 
 function useParts(parts, name) {
   impStop(); $('recErr').classList.add('hidden');
-  Object.assign(MID, { parts, name, al: null, man: 0 });
+  Object.assign(MID, { parts, name, al: null, man: 0, warp: null });
   MID.main = pickMain(parts); MID.sel = new Set([MID.main]);
   IMP.show = true; REC.res = null; REC.fr = [];
   renderMid();
@@ -1547,13 +1714,11 @@ $('wrUse').onclick = () => {
     let notes, extra = '';
     if (byBeats) {
       const r = parseBeats(txt, +$('wrKey').value, bpm); notes = r.notes;
-      extra = ' Leí ' + r.bars + ' compases por tiempos' + (r.played !== r.bars ? ' (' + r.played + ' contando las repeticiones)' : '') + '.' +
-        (r.warn.length ? ' Ojo: ' + (r.warn.length === 1 ? 'el compás ' : 'los compases ') + r.warn.join(', ') + (r.warn.length === 1 ? ' no tiene' : ' no tienen') +
-          ' ' + r.common + ' tiempos como los demás; ' + (r.warn.length === 1 ? 'revísalo' : 'revísalos') + ', porque corre el ritmo de todo lo que sigue.' : '');
+      extra = r.played !== r.bars ? ' (con las repeticiones armadas)' : '';
     } else notes = parseWritten(txt, +$('wrKey').value, bpm);
     useParts([{ name: 'Notas escritas', notes }], 'notas escritas');
-    $('recInfo').textContent = 'Listo: ' + notes.length + ' notas, ' + Math.round(notes[notes.length - 1].t + notes[notes.length - 1].d) + ' s de melodía.' + extra +
-      (IMP.det ? '' : ' Sube la grabación para sincronizarlas con ella, o canta encima de las notas solas.');
+    $('st2').textContent = '✓ ' + notes.length + ' notas' + extra;
+    if (!IMP.det) $('recInfo').textContent = 'Ahora sube la grabación (paso 1) para acomodar las notas a ella. También puedes cantar encima de las notas solas.';
     try { localStorage.setItem('pelota-wr', JSON.stringify({ t: $('wrTxt').value, k: $('wrKey').value, b: $('wrBpm').value, f: $('wrFmt').value })); } catch (e) {}
   } catch (e) { $('recErr').textContent = e.message || String(e); $('recErr').classList.remove('hidden'); }
 };
@@ -1564,6 +1729,11 @@ $('midFile').onchange = () => { const f = $('midFile').files[0]; $('midFile').va
 $('midClear').onclick = () => { impStop(); MID.parts = null; MID.al = null; refreshNotes(); $('recInfo').textContent = IMP.det ? 'Volví a las notas detectadas en la grabación.' : ''; };
 $('midOff').oninput = () => { MID.man = +$('midOff').value; $('midOffV').textContent = MID.man.toFixed(2).replace('.', ',') + ' s'; refreshNotes(); };
 $('impBoth').onclick = () => impPlay('both');
+$('recCv').addEventListener('click', e => {
+  if (!(IMP.show && IMP.notes && !REC.on)) return;
+  const rc = $('recCv').getBoundingClientRect(), t = (e.clientX - rc.left) / rc.width * impDur();
+  impPlay(IMP.buf ? (MID.parts ? 'both' : 'orig') : 'syn', Math.max(0, t - 0.5));
+});
 
 $('impBtn').onclick = () => $('impFile').click();
 $('impFile').onchange = () => { const f = $('impFile').files[0]; $('impFile').value = ''; if (f) { IMP.show = true; REC.res = null; REC.fr = []; importAudio(f); } };
